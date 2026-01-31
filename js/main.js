@@ -11,9 +11,11 @@
     const enterBtn = document.getElementById('enterBtn');
     const soundSpace = document.getElementById('space');
     const hint = document.getElementById('hint');
+    const backLink = document.querySelector('.back-link');
 
     // State
     let hasEntered = false;
+    let isExiting = false;
 
     // Initialize
     function init() {
@@ -24,6 +26,26 @@
         enterBtn.addEventListener('touchend', function(e) {
             e.preventDefault();
             enter();
+        });
+
+        // Back link with graceful exit
+        if (backLink) {
+            backLink.addEventListener('click', function(e) {
+                if (hasEntered && !isExiting) {
+                    e.preventDefault();
+                    isExiting = true;
+                    RefugeAudio.gracefulExit().then(function() {
+                        window.location.href = backLink.href;
+                    });
+                }
+            });
+        }
+
+        // Graceful exit on page unload
+        window.addEventListener('beforeunload', function() {
+            if (hasEntered) {
+                RefugeAudio.gracefulExit();
+            }
         });
 
         // Keyboard support
@@ -63,20 +85,22 @@
     }
 
     function leave() {
-        if (!hasEntered) return;
+        if (!hasEntered || isExiting) return;
+        isExiting = true;
 
-        // Stop audio
-        RefugeAudio.stop();
+        // Graceful audio fade out
+        RefugeAudio.gracefulExit().then(function() {
+            // Deactivate input
+            RefugeInput.deactivate();
 
-        // Deactivate input
-        RefugeInput.deactivate();
+            // Reset UI
+            soundSpace.classList.add('hidden');
+            entryScreen.style.display = '';
+            entryScreen.classList.remove('fade-out');
 
-        // Reset UI
-        soundSpace.classList.add('hidden');
-        entryScreen.style.display = '';
-        entryScreen.classList.remove('fade-out');
-
-        hasEntered = false;
+            hasEntered = false;
+            isExiting = false;
+        });
     }
 
     function showHint() {

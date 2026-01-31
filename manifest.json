@@ -1,0 +1,19 @@
+{
+  "name": "dwell:refuge",
+  "short_name": "refuge",
+  "description": "A climate refuge soundscape",
+  "start_url": "/",
+  "display": "fullscreen",
+  "orientation": "any",
+  "background_color": "#332b28",
+  "theme_color": "#332b28",
+  "categories": ["entertainment", "music"],
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}

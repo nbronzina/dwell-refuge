@@ -2,6 +2,7 @@
 // DWELL:REFUGE - Input Handler
 // Cursor tracking with zone-based color response
 // Optimized with throttling for performance
+// Includes gyroscope support for mobile
 // ============================================
 
 const RefugeInput = (function() {
@@ -21,6 +22,11 @@ const RefugeInput = (function() {
     // Smoothing for velocity calculation
     const VELOCITY_SMOOTHING = 0.1;
     const VELOCITY_DECAY = 0.95;
+
+    // Gyroscope state
+    let useGyro = false;
+    let gyroAvailable = false;
+    let gyroButton = null;
 
     // Zone colors (subtle tints based on climate zones)
     // Base is Heated brown #332b28 (51, 43, 40)
@@ -87,8 +93,113 @@ const RefugeInput = (function() {
         document.addEventListener('touchmove', handleTouch, { passive: true });
         document.addEventListener('touchend', handleTouchEnd);
 
+        // Check for gyroscope availability
+        checkGyroAvailability();
+
         // Start velocity decay loop
         requestAnimationFrame(updateVelocity);
+    }
+
+    // ============================================
+    // GYROSCOPE SUPPORT
+    // ============================================
+
+    function checkGyroAvailability() {
+        // Check if device orientation is available
+        if ('DeviceOrientationEvent' in window) {
+            gyroAvailable = true;
+        }
+    }
+
+    function createGyroButton() {
+        if (gyroButton) return;
+
+        gyroButton = document.createElement('button');
+        gyroButton.className = 'gyro-button';
+        gyroButton.textContent = 'use motion';
+        gyroButton.addEventListener('click', requestGyroPermission);
+
+        document.body.appendChild(gyroButton);
+    }
+
+    function removeGyroButton() {
+        if (gyroButton) {
+            gyroButton.remove();
+            gyroButton = null;
+        }
+    }
+
+    function requestGyroPermission() {
+        // iOS 13+ requires explicit permission
+        if (typeof DeviceOrientationEvent !== 'undefined' &&
+            typeof DeviceOrientationEvent.requestPermission === 'function') {
+            DeviceOrientationEvent.requestPermission()
+                .then(function(permission) {
+                    if (permission === 'granted') {
+                        enableGyro();
+                        removeGyroButton();
+                    }
+                })
+                .catch(function(error) {
+                    console.log('Gyro permission error:', error);
+                });
+        } else {
+            // Android and older iOS
+            enableGyro();
+            removeGyroButton();
+        }
+    }
+
+    function enableGyro() {
+        useGyro = true;
+        window.addEventListener('deviceorientation', handleOrientation);
+
+        // Hide cursor when using gyro
+        if (cursor) {
+            cursor.classList.add('hidden');
+        }
+    }
+
+    function disableGyro() {
+        useGyro = false;
+        window.removeEventListener('deviceorientation', handleOrientation);
+    }
+
+    function handleOrientation(e) {
+        if (!useGyro || !isActive) return;
+
+        const now = performance.now();
+
+        // beta: front-to-back tilt (-180 to 180)
+        // gamma: left-to-right tilt (-90 to 90)
+
+        // Normalize to 0-1 with comfortable tilt ranges
+        // gamma: -45 to +45 degrees maps to 0-1 (x axis)
+        // beta: 0 to 90 degrees maps to 0-1 (y axis) - phone tilted up
+        let x = (e.gamma + 45) / 90;
+        let y = (e.beta) / 90;
+
+        // Clamp values
+        x = Math.max(0, Math.min(1, x));
+        y = Math.max(0, Math.min(1, y));
+
+        lastPosition.x = x;
+        lastPosition.y = y;
+
+        // Throttle audio updates
+        if (now - lastAudioUpdate >= AUDIO_THROTTLE_MS) {
+            lastAudioUpdate = now;
+
+            if (typeof RefugeAudio !== 'undefined') {
+                RefugeAudio.setPosition(x, y);
+            }
+
+            updateBackgroundColor(x, y);
+        }
+    }
+
+    function isMobile() {
+        return /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
     }
 
     function handleMove(e) {
@@ -173,11 +284,18 @@ const RefugeInput = (function() {
     function activate() {
         isActive = true;
         showCursor();
+
+        // Show gyro button on mobile if available
+        if (isMobile() && gyroAvailable && !useGyro) {
+            createGyroButton();
+        }
     }
 
     function deactivate() {
         isActive = false;
         hideCursor();
+        disableGyro();
+        removeGyroButton();
     }
 
     return {
@@ -189,6 +307,12 @@ const RefugeInput = (function() {
         },
         getVelocity: function() {
             return velocity;
+        },
+        isUsingGyro: function() {
+            return useGyro;
+        },
+        hasGyro: function() {
+            return gyroAvailable;
         }
     };
 })();

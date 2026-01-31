@@ -521,6 +521,104 @@ const Synthesis = (function() {
         };
     }
 
+    /**
+     * Zone reverb profiles
+     * Each zone has its own acoustic character
+     */
+    const ZONE_REVERB_PROFILES = {
+        storm: {
+            duration: 0.3,    // Short - room with window
+            decay: 4,
+            wetDry: 0.15,
+            preDelay: 0.005,
+            filterFreq: 4000   // Bright
+        },
+        heat: {
+            duration: 0.6,    // Medium - closed apartment
+            decay: 2.5,
+            wetDry: 0.2,
+            preDelay: 0.01,
+            filterFreq: 2500   // Warmer
+        },
+        flood: {
+            duration: 1.2,    // Long - basement/garage
+            decay: 1.5,
+            wetDry: 0.35,
+            preDelay: 0.02,
+            filterFreq: 1800   // Metallic character
+        },
+        drought: {
+            duration: 1.5,    // Very long - empty space
+            decay: 1.2,
+            wetDry: 0.25,
+            preDelay: 0.025,
+            filterFreq: 6000   // Diffuse, airy
+        },
+        refuge: {
+            duration: 0.4,    // Short - comfortable living room
+            decay: 3,
+            wetDry: 0.12,
+            preDelay: 0.008,
+            filterFreq: 3000   // Warm, cozy
+        }
+    };
+
+    /**
+     * Create zone-specific reverb with unique character
+     */
+    function createZoneReverb(ctx, zoneName) {
+        const profile = ZONE_REVERB_PROFILES[zoneName] || ZONE_REVERB_PROFILES.refuge;
+
+        // Pre-delay
+        const preDelay = ctx.createDelay(0.1);
+        preDelay.delayTime.value = profile.preDelay;
+
+        // Convolver
+        const convolver = ctx.createConvolver();
+        convolver.buffer = createReverbImpulse(ctx, profile.duration, profile.decay);
+
+        // High cut filter for character
+        const filter = ctx.createBiquadFilter();
+        filter.type = 'lowpass';
+        filter.frequency.value = profile.filterFreq;
+        filter.Q.value = 0.5;
+
+        // Wet/dry mix
+        const wet = ctx.createGain();
+        wet.gain.value = profile.wetDry;
+        const dry = ctx.createGain();
+        dry.gain.value = 1 - profile.wetDry;
+
+        // Input splitter
+        const input = ctx.createGain();
+
+        // Connect wet path: input → preDelay → convolver → filter → wet
+        input.connect(preDelay);
+        preDelay.connect(convolver);
+        convolver.connect(filter);
+        filter.connect(wet);
+
+        // Connect dry path: input → dry
+        input.connect(dry);
+
+        // Output mixer
+        const output = ctx.createGain();
+        wet.connect(output);
+        dry.connect(output);
+
+        return {
+            input: input,
+            output: output,
+            wet: wet,
+            dry: dry,
+            connect: (dest) => output.connect(dest),
+            setWetDry: (amount) => {
+                wet.gain.setTargetAtTime(amount, ctx.currentTime, 0.1);
+                dry.gain.setTargetAtTime(1 - amount, ctx.currentTime, 0.1);
+            }
+        };
+    }
+
     // ============================================
     // DOMESTIC SOUNDS
     // ============================================
@@ -907,6 +1005,8 @@ const Synthesis = (function() {
         createWind,
         createReverbImpulse,
         createReverb,
+        createZoneReverb,
+        ZONE_REVERB_PROFILES,
         // Domestic sounds
         createApplianceCycle,
         createDripWithReverb,

@@ -17,7 +17,11 @@ const Zones = (function() {
     function createStormZone(ctx, destination) {
         const masterGain = ctx.createGain();
         masterGain.gain.value = 0;
-        masterGain.connect(destination);
+
+        // Zone-specific reverb
+        const zoneReverb = Synthesis.createZoneReverb(ctx, 'storm');
+        masterGain.connect(zoneReverb.input);
+        zoneReverb.connect(destination);
 
         const cleanupFns = [];
 
@@ -118,7 +122,11 @@ const Zones = (function() {
     function createHeatZone(ctx, destination) {
         const masterGain = ctx.createGain();
         masterGain.gain.value = 0;
-        masterGain.connect(destination);
+
+        // Zone-specific reverb
+        const zoneReverb = Synthesis.createZoneReverb(ctx, 'heat');
+        masterGain.connect(zoneReverb.input);
+        zoneReverb.connect(destination);
 
         const cleanupFns = [];
 
@@ -179,7 +187,11 @@ const Zones = (function() {
     function createRefugeZone(ctx, destination) {
         const masterGain = ctx.createGain();
         masterGain.gain.value = 0;
-        masterGain.connect(destination);
+
+        // Zone-specific reverb
+        const zoneReverb = Synthesis.createZoneReverb(ctx, 'refuge');
+        masterGain.connect(zoneReverb.input);
+        zoneReverb.connect(destination);
 
         const cleanupFns = [];
 
@@ -253,7 +265,11 @@ const Zones = (function() {
     function createFloodZone(ctx, destination) {
         const masterGain = ctx.createGain();
         masterGain.gain.value = 0;
-        masterGain.connect(destination);
+
+        // Zone-specific reverb
+        const zoneReverb = Synthesis.createZoneReverb(ctx, 'flood');
+        masterGain.connect(zoneReverb.input);
+        zoneReverb.connect(destination);
 
         const cleanupFns = [];
 
@@ -376,7 +392,11 @@ const Zones = (function() {
     function createDroughtZone(ctx, destination) {
         const masterGain = ctx.createGain();
         masterGain.gain.value = 0;
-        masterGain.connect(destination);
+
+        // Zone-specific reverb
+        const zoneReverb = Synthesis.createZoneReverb(ctx, 'drought');
+        masterGain.connect(zoneReverb.input);
+        zoneReverb.connect(destination);
 
         const cleanupFns = [];
 

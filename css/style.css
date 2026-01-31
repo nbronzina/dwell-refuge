@@ -188,6 +188,32 @@ html, body {
     -webkit-user-select: none;
 }
 
+/* Gyroscope Button (Mobile) */
+.gyro-button {
+    position: fixed;
+    bottom: 2rem;
+    left: 50%;
+    transform: translateX(-50%);
+    background: none;
+    border: 1px solid var(--heated-accent-dim);
+    border-radius: 2px;
+    font-family: inherit;
+    font-size: 0.7rem;
+    font-weight: 300;
+    color: var(--heated-accent-dim);
+    letter-spacing: 0.1em;
+    padding: 0.6rem 1.2rem;
+    z-index: 150;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.gyro-button:hover,
+.gyro-button:active {
+    color: var(--heated-accent);
+    border-color: var(--heated-accent);
+}
+
 /* Touch devices */
 @media (hover: none) {
     html, body, .sound-space {

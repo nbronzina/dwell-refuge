@@ -12,6 +12,12 @@
     <!-- Theme color -->
     <meta name="theme-color" content="#332b28">
 
+    <!-- PWA Manifest -->
+    <link rel="manifest" href="manifest.json">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="refuge">
+
     <!-- Open Graph -->
     <meta property="og:title" content="dwell:refuge">
     <meta property="og:description" content="A climate refuge soundscape by Heated Studio">
@@ -51,5 +57,18 @@
     <script src="js/audio.js"></script>
     <script src="js/input.js"></script>
     <script src="js/main.js"></script>
+
+    <!-- Service Worker Registration -->
+    <script>
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('service-worker.js')
+                .then(function(registration) {
+                    console.log('SW registered:', registration.scope);
+                })
+                .catch(function(error) {
+                    console.log('SW registration failed:', error);
+                });
+        }
+    </script>
 </body>
 </html>
