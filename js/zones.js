@@ -1,14 +1,15 @@
 // ============================================
 // DWELL:REFUGE - Zone Definitions
-// 5 climate zones: storm, heat, refuge, flood, drought
+// Future mundane: domestic sounds under climate stress
 // ============================================
 
 const Zones = (function() {
     'use strict';
 
     // ============================================
-    // STORM ZONE [0.1, 0.1] - Electrical Storm
-    // Chaotic, enveloping, threatening
+    // STORM ZONE [0.1, 0.1]
+    // Being inside during the storm
+    // Rain on window, glass vibrating, interior leak, blind rattling
     // ============================================
 
     function createStormZone(ctx, destination) {
@@ -18,29 +19,86 @@ const Zones = (function() {
 
         const cleanupFns = [];
 
-        // 1. Heavy rain - dense pink noise with lowpass
-        const rain = Synthesis.createFilteredNoise(ctx, 'pink', 'lowpass', 2000, 0.5);
-        rain.gain.gain.value = 0.25;
-        rain.connect(masterGain);
-        rain.start();
-        cleanupFns.push(() => { try { rain.stop(); } catch(e) {} });
+        // 1. Rain on window - highpass filtered noise (rain hitting glass, not open rain)
+        const rainOnGlass = Synthesis.createFilteredNoise(ctx, 'white', 'highpass', 1200, 0.8);
+        rainOnGlass.gain.gain.value = 0.12;
+        rainOnGlass.connect(masterGain);
+        rainOnGlass.start();
+        cleanupFns.push(() => { try { rainOnGlass.stop(); } catch(e) {} });
 
-        // 2. Individual drops - bursts at 5-15 per second
-        const drips = Synthesis.scheduleDrips(ctx, masterGain, 0.07, 0.2, 800, 1200, 0.1);
-        drips.start();
-        cleanupFns.push(() => drips.stop());
+        // Add irregular intensity to rain (gusts)
+        const rainLfo = ctx.createOscillator();
+        const rainLfoGain = ctx.createGain();
+        rainLfo.type = 'sine';
+        rainLfo.frequency.value = 0.08;
+        rainLfoGain.gain.value = 0.04;
+        rainLfo.connect(rainLfoGain);
+        rainLfoGain.connect(rainOnGlass.gain.gain);
+        rainLfo.start();
+        cleanupFns.push(() => { try { rainLfo.stop(); } catch(e) {} });
 
-        // 3. Distant thunder - low freq bursts with long decay
-        const thunder = Synthesis.scheduleBursts(ctx, masterGain, 8, 20, 50, 150, 0.8, 0.5, 0.5);
-        thunder.start();
-        cleanupFns.push(() => thunder.stop());
+        // 2. Interior leak - drip every 2-3 seconds with room reverb
+        const leak = Synthesis.scheduleDripsWithReverb(ctx, masterGain, 2, 3.5, 'room', 0.12);
+        leak.start();
+        cleanupFns.push(() => leak.stop());
 
-        // 4. Wind gusts - white noise with LFO
-        const wind = Synthesis.createWind(ctx, 600, 0.15, 0.25);
-        wind.gain.gain.value = 0.15;
-        wind.connect(masterGain);
-        wind.start();
-        cleanupFns.push(() => { try { wind.stop(); } catch(e) {} });
+        // 3. Blind/shutter rattling - irregular low clicks
+        const blindScheduler = {
+            timeout: null,
+            running: false,
+            start: function() {
+                this.running = true;
+                this.schedule();
+            },
+            stop: function() {
+                this.running = false;
+                if (this.timeout) clearTimeout(this.timeout);
+            },
+            schedule: function() {
+                if (!this.running) return;
+                const interval = (5 + Math.random() * 10) * 1000;
+                this.timeout = setTimeout(() => {
+                    if (!this.running) return;
+                    // Low thud of blind hitting frame
+                    Synthesis.createNoiseBurst(ctx, masterGain, 200 + Math.random() * 100, 0.08, 8);
+                    this.schedule();
+                }, interval);
+            }
+        };
+        blindScheduler.start();
+        cleanupFns.push(() => blindScheduler.stop());
+
+        // 4. Thunder + glass vibration - distant thunder triggers window rattle
+        const thunderScheduler = {
+            timeout: null,
+            running: false,
+            start: function() {
+                this.running = true;
+                this.schedule();
+            },
+            stop: function() {
+                this.running = false;
+                if (this.timeout) clearTimeout(this.timeout);
+            },
+            schedule: function() {
+                if (!this.running) return;
+                const interval = (12 + Math.random() * 20) * 1000;
+                this.timeout = setTimeout(() => {
+                    if (!this.running) return;
+                    // Distant thunder (low rumble)
+                    Synthesis.createNoiseBurst(ctx, masterGain, 80 + Math.random() * 40, 1.5, 0.8);
+                    // Glass vibration triggered by thunder (delayed slightly)
+                    setTimeout(() => {
+                        if (this.running) {
+                            Synthesis.createGlassVibration(ctx, masterGain, 0.06, 1.5 + Math.random());
+                        }
+                    }, 200 + Math.random() * 300);
+                    this.schedule();
+                }, interval);
+            }
+        };
+        thunderScheduler.start();
+        cleanupFns.push(() => thunderScheduler.stop());
 
         return {
             gainNode: masterGain,
@@ -49,8 +107,9 @@ const Zones = (function() {
     }
 
     // ============================================
-    // HEAT ZONE [0.9, 0.1] - Heat Wave
-    // Oppressive, static, exhausting
+    // HEAT ZONE [0.9, 0.1]
+    // August siesta - 3pm, everything closed
+    // AC humming, fan, fridge cycling, distant filtered cicadas
     // ============================================
 
     function createHeatZone(ctx, destination) {
@@ -60,36 +119,45 @@ const Zones = (function() {
 
         const cleanupFns = [];
 
-        // 1. Aggressive cicadas - AM synthesis
-        const cicadas = Synthesis.createInsectChorus(ctx, 10, 4000, 8000);
-        cicadas.gain.gain.value = 0.4;
+        // 1. Air conditioning - constant low hum, the machine working
+        const ac = Synthesis.createFilteredNoise(ctx, 'pink', 'lowpass', 300, 0.3);
+        ac.gain.gain.value = 0.1;
+        ac.connect(masterGain);
+        ac.start();
+        cleanupFns.push(() => { try { ac.stop(); } catch(e) {} });
+
+        // AC compressor undertone
+        const acCompressor = Synthesis.createMechanicalHum(ctx, 55, 0.3, 1);
+        acCompressor.gain.gain.value = 0.04;
+        acCompressor.connect(masterGain);
+        acCompressor.start();
+        cleanupFns.push(() => { try { acCompressor.stop(); } catch(e) {} });
+
+        // 2. Ceiling fan or standing fan - slow rotation
+        const fan = Synthesis.createMechanicalHum(ctx, 35, 0.8, 3);
+        fan.gain.gain.value = 0.03;
+        fan.connect(masterGain);
+        fan.start();
+        cleanupFns.push(() => { try { fan.stop(); } catch(e) {} });
+
+        // 3. Fridge cycling - on/off every 30-60 seconds
+        const fridge = Synthesis.createApplianceCycle(ctx, 90, 25, 45);
+        fridge.connect(masterGain);
+        fridge.start();
+        cleanupFns.push(() => fridge.stop());
+
+        // 4. Distant cicadas through closed window - very filtered
+        const cicadas = Synthesis.createFilteredCicadas(ctx, 3);
+        cicadas.gain.gain.value = 0.06;
         cicadas.connect(masterGain);
         cicadas.start();
         cleanupFns.push(() => cicadas.stop());
 
-        // 2. Electrical hum (50/60Hz mains frequency)
-        const hum = Synthesis.createDrone(ctx, 60, 0.03);
-        hum.connect(masterGain);
-        hum.start();
-        cleanupFns.push(() => { try { hum.stop(); } catch(e) {} });
-
-        // Second harmonic
-        const hum2 = Synthesis.createDrone(ctx, 120, 0.015);
-        hum2.connect(masterGain);
-        hum2.start();
-        cleanupFns.push(() => { try { hum2.stop(); } catch(e) {} });
-
-        // 3. Metal expanding - rare high-freq clicks
-        const metalClicks = Synthesis.scheduleDrips(ctx, masterGain, 10, 30, 3000, 6000, 0.08);
-        metalClicks.start();
-        cleanupFns.push(() => metalClicks.stop());
-
-        // 4. Tense silence base - very subtle high-freq noise
-        const tension = Synthesis.createFilteredNoise(ctx, 'white', 'highpass', 6000, 0.3);
-        tension.gain.gain.value = 0.02;
-        tension.connect(masterGain);
-        tension.start();
-        cleanupFns.push(() => { try { tension.stop(); } catch(e) {} });
+        // 5. Electrical hum undertone (50Hz mains)
+        const mains = Synthesis.createDrone(ctx, 50, 0.015);
+        mains.connect(masterGain);
+        mains.start();
+        cleanupFns.push(() => { try { mains.stop(); } catch(e) {} });
 
         return {
             gainNode: masterGain,
@@ -98,8 +166,9 @@ const Zones = (function() {
     }
 
     // ============================================
-    // REFUGE ZONE [0.5, 0.5] - Interior Shelter
-    // Calm, protected, breathable
+    // REFUGE ZONE [0.5, 0.5]
+    // Interior that works - normalcy
+    // Soft HVAC, room tone, subtle appliances
     // ============================================
 
     function createRefugeZone(ctx, destination) {
@@ -109,49 +178,61 @@ const Zones = (function() {
 
         const cleanupFns = [];
 
-        // 1. Soft ventilation - very filtered pink noise
-        const vent = Synthesis.createFilteredNoise(ctx, 'pink', 'lowpass', 400, 0.3);
-        vent.gain.gain.value = 0.08;
+        // 1. Ventilation - system working well, very subtle
+        const vent = Synthesis.createFilteredNoise(ctx, 'pink', 'lowpass', 200, 0.2);
+        vent.gain.gain.value = 0.04;
         vent.connect(masterGain);
         vent.start();
         cleanupFns.push(() => { try { vent.stop(); } catch(e) {} });
 
-        // 2. Room tone - subliminal drone
-        const roomTone = Synthesis.createRoomTone(ctx, 60, 0.04);
+        // 2. Room tone - the sound of the room itself
+        const roomTone = Synthesis.createRoomTone(ctx, 55, 0.025);
         roomTone.connect(masterGain);
         roomTone.start();
         cleanupFns.push(() => { try { roomTone.stop(); } catch(e) {} });
 
-        // 3. Very subtle presence - almost imperceptible breathing
-        const osc = ctx.createOscillator();
-        const lfo = ctx.createOscillator();
-        const lfoGain = ctx.createGain();
-        const presenceGain = ctx.createGain();
-        const filter = ctx.createBiquadFilter();
+        // 3. Subtle electrical presence (fridge in distance, something humming)
+        const electricalPresence = Synthesis.createDrone(ctx, 100, 0.012);
+        electricalPresence.connect(masterGain);
+        electricalPresence.start();
+        cleanupFns.push(() => { try { electricalPresence.stop(); } catch(e) {} });
 
-        osc.type = 'sine';
-        osc.frequency.value = 80;
-        lfo.type = 'sine';
-        lfo.frequency.value = 0.1; // Very slow breathing
-        lfoGain.gain.value = 0.02;
-
-        filter.type = 'lowpass';
-        filter.frequency.value = 200;
-
-        presenceGain.gain.value = 0.03;
-
-        lfo.connect(lfoGain);
-        lfoGain.connect(presenceGain.gain);
-        osc.connect(filter);
-        filter.connect(presenceGain);
-        presenceGain.connect(masterGain);
-
-        osc.start();
-        lfo.start();
-        cleanupFns.push(() => {
-            try { osc.stop(); } catch(e) {}
-            try { lfo.stop(); } catch(e) {}
-        });
+        // 4. Very occasional subtle sound - suggests normalcy without events
+        // (Much less frequent than other zones - this is peace)
+        const ambientScheduler = {
+            timeout: null,
+            running: false,
+            start: function() {
+                this.running = true;
+                this.schedule();
+            },
+            stop: function() {
+                this.running = false;
+                if (this.timeout) clearTimeout(this.timeout);
+            },
+            schedule: function() {
+                if (!this.running) return;
+                const interval = (30 + Math.random() * 60) * 1000; // Very rare
+                this.timeout = setTimeout(() => {
+                    if (!this.running) return;
+                    // Tiny settling sound - building breathing
+                    const osc = ctx.createOscillator();
+                    const g = ctx.createGain();
+                    osc.type = 'sine';
+                    osc.frequency.value = 80 + Math.random() * 40;
+                    g.gain.setValueAtTime(0, ctx.currentTime);
+                    g.gain.linearRampToValueAtTime(0.01, ctx.currentTime + 0.05);
+                    g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.2);
+                    osc.connect(g);
+                    g.connect(masterGain);
+                    osc.start();
+                    osc.stop(ctx.currentTime + 0.25);
+                    this.schedule();
+                }, interval);
+            }
+        };
+        ambientScheduler.start();
+        cleanupFns.push(() => ambientScheduler.stop());
 
         return {
             gainNode: masterGain,
@@ -160,8 +241,9 @@ const Zones = (function() {
     }
 
     // ============================================
-    // FLOOD ZONE [0.1, 0.9] - Rising Water
-    // Enveloping, humid, claustrophobic
+    // FLOOD ZONE [0.1, 0.9]
+    // Water got inside - managing the situation
+    // Bucket drip, pipes, sump pump, floating objects
     // ============================================
 
     function createFloodZone(ctx, destination) {
@@ -171,46 +253,69 @@ const Zones = (function() {
 
         const cleanupFns = [];
 
-        // 1. Running water - bandpass filtered noise with slow modulation
-        const waterBuffer = Synthesis.createPinkNoiseBuffer(ctx, 4);
-        const water = ctx.createBufferSource();
-        water.buffer = waterBuffer;
-        water.loop = true;
+        // 1. Drip into bucket - metallic reverb, semi-regular
+        const bucketDrip = Synthesis.scheduleDripsWithReverb(ctx, masterGain, 0.8, 1.5, 'metal', 0.15);
+        bucketDrip.start();
+        cleanupFns.push(() => bucketDrip.stop());
 
-        const waterFilter = ctx.createBiquadFilter();
-        waterFilter.type = 'bandpass';
-        waterFilter.frequency.value = 500;
-        waterFilter.Q.value = 0.8;
+        // 2. Water in pipes - constant low gurgle
+        const pipes = Synthesis.createFilteredNoise(ctx, 'pink', 'bandpass', 400, 1.5);
+        pipes.gain.gain.value = 0.08;
+        pipes.connect(masterGain);
+        pipes.start();
+        cleanupFns.push(() => { try { pipes.stop(); } catch(e) {} });
 
-        // Slow modulation on filter
-        const waterLfo = ctx.createOscillator();
-        const waterLfoGain = ctx.createGain();
-        waterLfo.type = 'sine';
-        waterLfo.frequency.value = 0.05;
-        waterLfoGain.gain.value = 200;
-        waterLfo.connect(waterLfoGain);
-        waterLfoGain.connect(waterFilter.frequency);
+        // Add slow modulation to pipe sound
+        const pipeLfo = ctx.createOscillator();
+        const pipeLfoGain = ctx.createGain();
+        pipeLfo.type = 'sine';
+        pipeLfo.frequency.value = 0.15;
+        pipeLfoGain.gain.value = 0.03;
+        pipeLfo.connect(pipeLfoGain);
+        pipeLfoGain.connect(pipes.gain.gain);
+        pipeLfo.start();
+        cleanupFns.push(() => { try { pipeLfo.stop(); } catch(e) {} });
 
-        const waterGain = ctx.createGain();
-        waterGain.gain.value = 0.2;
+        // 3. Sump pump / bilge pump - cycles on and off
+        const pump = Synthesis.createApplianceCycle(ctx, 80, 20, 40);
+        pump.connect(masterGain);
+        pump.start();
+        cleanupFns.push(() => pump.stop());
 
-        water.connect(waterFilter);
-        waterFilter.connect(waterGain);
-        waterGain.connect(masterGain);
-        water.start();
-        waterLfo.start();
+        // Pump vibration when running
+        const pumpVibration = Synthesis.createMechanicalHum(ctx, 45, 2, 5);
+        pumpVibration.gain.gain.value = 0.04;
+        pumpVibration.connect(masterGain);
+        pumpVibration.start();
+        cleanupFns.push(() => { try { pumpVibration.stop(); } catch(e) {} });
 
-        cleanupFns.push(() => {
-            try { water.stop(); } catch(e) {}
-            try { waterLfo.stop(); } catch(e) {}
-        });
+        // 4. Floating objects bumping - occasional soft thuds
+        const floatingScheduler = {
+            timeout: null,
+            running: false,
+            start: function() {
+                this.running = true;
+                this.schedule();
+            },
+            stop: function() {
+                this.running = false;
+                if (this.timeout) clearTimeout(this.timeout);
+            },
+            schedule: function() {
+                if (!this.running) return;
+                const interval = (8 + Math.random() * 20) * 1000;
+                this.timeout = setTimeout(() => {
+                    if (!this.running) return;
+                    // Soft thud - object hitting wall or furniture
+                    Synthesis.createNoiseBurst(ctx, masterGain, 120 + Math.random() * 80, 0.15, 6);
+                    this.schedule();
+                }, interval);
+            }
+        };
+        floatingScheduler.start();
+        cleanupFns.push(() => floatingScheduler.stop());
 
-        // 2. Constant dripping - irregular 2-5 per second
-        const drips = Synthesis.scheduleDrips(ctx, masterGain, 0.2, 0.5, 600, 1000, 0.12);
-        drips.start();
-        cleanupFns.push(() => drips.stop());
-
-        // 3. Splashing - random bursts of filtered noise
+        // 5. Occasional splash/movement in water
         const splashScheduler = {
             timeout: null,
             running: false,
@@ -224,41 +329,32 @@ const Zones = (function() {
             },
             schedule: function() {
                 if (!this.running) return;
-                const interval = (2 + Math.random() * 5) * 1000;
+                const interval = (4 + Math.random() * 8) * 1000;
                 this.timeout = setTimeout(() => {
                     if (!this.running) return;
-                    // Create splash
-                    const splashBuf = Synthesis.createWhiteNoiseBuffer(ctx, 0.15);
+                    // Small splash
+                    const splashBuf = Synthesis.createWhiteNoiseBuffer(ctx, 0.1);
                     const splash = ctx.createBufferSource();
                     splash.buffer = splashBuf;
-
                     const splashFilter = ctx.createBiquadFilter();
                     splashFilter.type = 'bandpass';
-                    splashFilter.frequency.value = 300 + Math.random() * 300;
-                    splashFilter.Q.value = 1;
-
+                    splashFilter.frequency.value = 500 + Math.random() * 300;
+                    splashFilter.Q.value = 0.8;
                     const splashGain = ctx.createGain();
                     const now = ctx.currentTime;
                     splashGain.gain.setValueAtTime(0, now);
-                    splashGain.gain.linearRampToValueAtTime(0.15, now + 0.01);
-                    splashGain.gain.exponentialRampToValueAtTime(0.001, now + 0.15);
-
+                    splashGain.gain.linearRampToValueAtTime(0.08, now + 0.01);
+                    splashGain.gain.exponentialRampToValueAtTime(0.001, now + 0.1);
                     splash.connect(splashFilter);
                     splashFilter.connect(splashGain);
                     splashGain.connect(masterGain);
                     splash.start();
-
                     this.schedule();
                 }, interval);
             }
         };
         splashScheduler.start();
         cleanupFns.push(() => splashScheduler.stop());
-
-        // 4. Floating objects - occasional low thuds
-        const thuds = Synthesis.scheduleBursts(ctx, masterGain, 15, 40, 80, 200, 0.2, 4, 0.2);
-        thuds.start();
-        cleanupFns.push(() => thuds.stop());
 
         return {
             gainNode: masterGain,
@@ -267,8 +363,9 @@ const Zones = (function() {
     }
 
     // ============================================
-    // DROUGHT ZONE [0.9, 0.9] - Dry Wind
-    // Harsh, dry, empty
+    // DROUGHT ZONE [0.9, 0.9]
+    // Months without rain - everything dry
+    // Wind on blinds, dust on glass, dripping faucet, wood creaking
     // ============================================
 
     function createDroughtZone(ctx, destination) {
@@ -278,67 +375,47 @@ const Zones = (function() {
 
         const cleanupFns = [];
 
-        // 1. Constant dry wind - highpass filtered noise
-        const wind = Synthesis.createWind(ctx, 800, 0.08, 0.2);
-        wind.gain.gain.value = 0.2;
+        // 1. Dry wind on blinds/shutters - highpass filtered
+        const wind = Synthesis.createWind(ctx, 1000, 0.06, 0.15);
+        wind.gain.gain.value = 0.08;
         wind.connect(masterGain);
         wind.start();
         cleanupFns.push(() => { try { wind.stop(); } catch(e) {} });
 
-        // 2. Dry grass/branches - granular high-freq bursts
-        const grassScheduler = {
-            timeout: null,
-            running: false,
-            start: function() {
-                this.running = true;
-                this.schedule();
-            },
-            stop: function() {
-                this.running = false;
-                if (this.timeout) clearTimeout(this.timeout);
-            },
-            schedule: function() {
-                if (!this.running) return;
-                const interval = (0.1 + Math.random() * 0.4) * 1000;
-                this.timeout = setTimeout(() => {
-                    if (!this.running) return;
-                    // Create crackle
-                    const crackleBuf = Synthesis.createWhiteNoiseBuffer(ctx, 0.02);
-                    const crackle = ctx.createBufferSource();
-                    crackle.buffer = crackleBuf;
-
-                    const crackleFilter = ctx.createBiquadFilter();
-                    crackleFilter.type = 'highpass';
-                    crackleFilter.frequency.value = 3000 + Math.random() * 2000;
-
-                    const crackleGain = ctx.createGain();
-                    const now = ctx.currentTime;
-                    crackleGain.gain.setValueAtTime(0.05 + Math.random() * 0.05, now);
-                    crackleGain.gain.exponentialRampToValueAtTime(0.001, now + 0.02);
-
-                    crackle.connect(crackleFilter);
-                    crackleFilter.connect(crackleGain);
-                    crackleGain.connect(masterGain);
-                    crackle.start();
-
-                    this.schedule();
-                }, interval);
-            }
-        };
-        grassScheduler.start();
-        cleanupFns.push(() => grassScheduler.stop());
-
-        // 3. Sand/dust - very filtered high-freq noise layer
+        // 2. Dust/sand particles on glass - very fine granular
         const dust = Synthesis.createFilteredNoise(ctx, 'white', 'highpass', 4000, 0.5);
-        dust.gain.gain.value = 0.04;
+        dust.gain.gain.value = 0.015;
         dust.connect(masterGain);
         dust.start();
         cleanupFns.push(() => { try { dust.stop(); } catch(e) {} });
 
-        // 4. Cracks - occasional low clicks (earth/wood cracking)
-        const cracks = Synthesis.scheduleBursts(ctx, masterGain, 20, 60, 100, 300, 0.1, 8, 0.15);
-        cracks.start();
-        cleanupFns.push(() => cracks.stop());
+        // Intermittent dust gusts
+        const dustLfo = ctx.createOscillator();
+        const dustLfoGain = ctx.createGain();
+        dustLfo.type = 'sine';
+        dustLfo.frequency.value = 0.03;
+        dustLfoGain.gain.value = 0.01;
+        dustLfo.connect(dustLfoGain);
+        dustLfoGain.connect(dust.gain.gain);
+        dustLfo.start();
+        cleanupFns.push(() => { try { dustLfo.stop(); } catch(e) {} });
+
+        // 3. Dripping faucet - inside there's still water (for now)
+        const faucet = Synthesis.scheduleDripsWithReverb(ctx, masterGain, 4, 8, 'tile', 0.1);
+        faucet.start();
+        cleanupFns.push(() => faucet.stop());
+
+        // 4. Wood/material creaking - dryness contracts materials
+        const creaks = Synthesis.scheduleCreaks(ctx, masterGain, 20, 45, 0.08);
+        creaks.start();
+        cleanupFns.push(() => creaks.stop());
+
+        // 5. Silence base - very sparse, empty feeling
+        // Just a subtle room presence
+        const roomPresence = Synthesis.createRoomTone(ctx, 70, 0.015);
+        roomPresence.connect(masterGain);
+        roomPresence.start();
+        cleanupFns.push(() => { try { roomPresence.stop(); } catch(e) {} });
 
         return {
             gainNode: masterGain,
@@ -356,35 +433,35 @@ const Zones = (function() {
             x: 0.1,
             y: 0.1,
             create: createStormZone,
-            color: { r: 10, g: 10, b: 16 } // Blue-ish dark
+            color: { r: 51, g: 43, b: 48 }  // #332b30 blue-ish
         },
         {
             name: 'heat',
             x: 0.9,
             y: 0.1,
             create: createHeatZone,
-            color: { r: 16, g: 10, b: 10 } // Orange-ish dark
+            color: { r: 58, g: 43, b: 40 }  // #3a2b28 red-ish
         },
         {
             name: 'refuge',
             x: 0.5,
             y: 0.5,
             create: createRefugeZone,
-            color: { r: 12, g: 12, b: 12 } // Neutral gray
+            color: { r: 51, g: 43, b: 40 }  // #332b28 neutral
         },
         {
             name: 'flood',
             x: 0.1,
             y: 0.9,
             create: createFloodZone,
-            color: { r: 10, g: 15, b: 16 } // Teal-ish dark
+            color: { r: 43, g: 50, b: 48 }  // #2b3230 green-ish
         },
         {
             name: 'drought',
             x: 0.9,
             y: 0.9,
             create: createDroughtZone,
-            color: { r: 15, g: 13, b: 10 } // Brown-ish dark
+            color: { r: 56, g: 50, b: 43 }  // #38322b yellow-ish
         }
     ];
 

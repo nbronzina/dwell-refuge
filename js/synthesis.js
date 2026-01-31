@@ -522,6 +522,372 @@ const Synthesis = (function() {
     }
 
     // ============================================
+    // DOMESTIC SOUNDS
+    // ============================================
+
+    /**
+     * Create appliance cycling sound (fridge, pump)
+     * Turns on and off at intervals
+     */
+    function createApplianceCycle(ctx, baseFreq = 100, onTime = 30, offTime = 60) {
+        const osc = ctx.createOscillator();
+        const osc2 = ctx.createOscillator();
+        const noise = ctx.createBufferSource();
+        noise.buffer = createPinkNoiseBuffer(ctx, 2);
+        noise.loop = true;
+
+        const noiseFilter = ctx.createBiquadFilter();
+        noiseFilter.type = 'bandpass';
+        noiseFilter.frequency.value = baseFreq * 2;
+        noiseFilter.Q.value = 2;
+
+        const noiseGain = ctx.createGain();
+        noiseGain.gain.value = 0.02;
+
+        osc.type = 'sine';
+        osc.frequency.value = baseFreq;
+        osc2.type = 'sine';
+        osc2.frequency.value = baseFreq * 2.02; // Slight detune for richness
+
+        const mixer = ctx.createGain();
+        mixer.gain.value = 0.5;
+
+        const outputGain = ctx.createGain();
+        outputGain.gain.value = 0;
+
+        osc.connect(mixer);
+        osc2.connect(mixer);
+        noise.connect(noiseFilter);
+        noiseFilter.connect(noiseGain);
+        noiseGain.connect(mixer);
+        mixer.connect(outputGain);
+
+        let cycleTimeout = null;
+        let isOn = false;
+        let isRunning = false;
+
+        function cycle() {
+            if (!isRunning) return;
+
+            if (isOn) {
+                // Turn off with fade
+                outputGain.gain.setTargetAtTime(0, ctx.currentTime, 0.5);
+                isOn = false;
+                const nextOff = (offTime * 0.5 + Math.random() * offTime) * 1000;
+                cycleTimeout = setTimeout(cycle, nextOff);
+            } else {
+                // Turn on with fade
+                outputGain.gain.setTargetAtTime(0.08, ctx.currentTime, 0.3);
+                isOn = true;
+                const nextOn = (onTime * 0.8 + Math.random() * onTime * 0.4) * 1000;
+                cycleTimeout = setTimeout(cycle, nextOn);
+            }
+        }
+
+        return {
+            gain: outputGain,
+            start: () => {
+                osc.start();
+                osc2.start();
+                noise.start();
+                isRunning = true;
+                // Start in off state, turn on after random delay
+                cycleTimeout = setTimeout(cycle, Math.random() * 5000);
+            },
+            stop: () => {
+                isRunning = false;
+                if (cycleTimeout) clearTimeout(cycleTimeout);
+                try { osc.stop(); } catch(e) {}
+                try { osc2.stop(); } catch(e) {}
+                try { noise.stop(); } catch(e) {}
+            },
+            connect: (dest) => outputGain.connect(dest)
+        };
+    }
+
+    /**
+     * Create drip with specific reverb character
+     * @param {string} type - 'metal' (bucket), 'tile' (bathroom), 'room' (general)
+     */
+    function createDripWithReverb(ctx, destination, type = 'room', gain = 0.15) {
+        const freq = type === 'metal' ? 1200 + Math.random() * 400 : 800 + Math.random() * 300;
+        const duration = type === 'metal' ? 0.08 : 0.05;
+
+        // Create the drip
+        const osc = ctx.createOscillator();
+        const dripGain = ctx.createGain();
+        const filter = ctx.createBiquadFilter();
+
+        osc.type = 'sine';
+        osc.frequency.value = freq;
+        // Pitch drops slightly (water drop characteristic)
+        osc.frequency.setValueAtTime(freq, ctx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(freq * 0.7, ctx.currentTime + duration);
+
+        filter.type = 'bandpass';
+        filter.frequency.value = freq;
+        filter.Q.value = type === 'metal' ? 15 : 8;
+
+        const now = ctx.currentTime;
+        dripGain.gain.setValueAtTime(0, now);
+        dripGain.gain.linearRampToValueAtTime(gain, now + 0.002);
+        dripGain.gain.exponentialRampToValueAtTime(0.001, now + duration);
+
+        // Mini reverb for the space character
+        const reverbTime = type === 'metal' ? 0.3 : type === 'tile' ? 0.5 : 0.2;
+        const reverb = ctx.createConvolver();
+        reverb.buffer = createReverbImpulse(ctx, reverbTime, 3);
+
+        const reverbGain = ctx.createGain();
+        reverbGain.gain.value = type === 'metal' ? 0.4 : 0.2;
+
+        const dry = ctx.createGain();
+        dry.gain.value = 0.7;
+
+        osc.connect(filter);
+        filter.connect(dripGain);
+        dripGain.connect(dry);
+        dripGain.connect(reverb);
+        reverb.connect(reverbGain);
+        dry.connect(destination);
+        reverbGain.connect(destination);
+
+        osc.start(now);
+        osc.stop(now + duration + reverbTime + 0.1);
+
+        return osc;
+    }
+
+    /**
+     * Schedule drips with reverb character
+     */
+    function scheduleDripsWithReverb(ctx, destination, minInterval, maxInterval, type = 'room', gain = 0.15) {
+        let timeoutId = null;
+        let isRunning = false;
+
+        function scheduleNext() {
+            if (!isRunning) return;
+            const interval = (minInterval + Math.random() * (maxInterval - minInterval)) * 1000;
+            timeoutId = setTimeout(() => {
+                if (!isRunning) return;
+                createDripWithReverb(ctx, destination, type, gain);
+                scheduleNext();
+            }, interval);
+        }
+
+        return {
+            start: () => {
+                isRunning = true;
+                scheduleNext();
+            },
+            stop: () => {
+                isRunning = false;
+                if (timeoutId) clearTimeout(timeoutId);
+            }
+        };
+    }
+
+    /**
+     * Create mechanical hum (fan, motor)
+     * Low frequency with slight wobble
+     */
+    function createMechanicalHum(ctx, freq = 40, wobbleRate = 0.5, wobbleDepth = 2) {
+        const osc = ctx.createOscillator();
+        const lfo = ctx.createOscillator();
+        const lfoGain = ctx.createGain();
+        const filter = ctx.createBiquadFilter();
+        const outputGain = ctx.createGain();
+
+        osc.type = 'sine';
+        osc.frequency.value = freq;
+
+        // Subtle frequency wobble (motor irregularity)
+        lfo.type = 'sine';
+        lfo.frequency.value = wobbleRate;
+        lfoGain.gain.value = wobbleDepth;
+        lfo.connect(lfoGain);
+        lfoGain.connect(osc.frequency);
+
+        filter.type = 'lowpass';
+        filter.frequency.value = freq * 3;
+        filter.Q.value = 1;
+
+        outputGain.gain.value = 0;
+
+        osc.connect(filter);
+        filter.connect(outputGain);
+
+        return {
+            gain: outputGain,
+            start: () => {
+                osc.start();
+                lfo.start();
+            },
+            stop: () => {
+                try { osc.stop(); } catch(e) {}
+                try { lfo.stop(); } catch(e) {}
+            },
+            connect: (dest) => outputGain.connect(dest)
+        };
+    }
+
+    /**
+     * Create glass vibration effect (window rattling from thunder)
+     * Triggered effect, not continuous
+     */
+    function createGlassVibration(ctx, destination, intensity = 0.1, duration = 2) {
+        const noise = ctx.createBufferSource();
+        noise.buffer = createWhiteNoiseBuffer(ctx, duration);
+
+        const filter = ctx.createBiquadFilter();
+        filter.type = 'bandpass';
+        filter.frequency.value = 300 + Math.random() * 200;
+        filter.Q.value = 10;
+
+        const lfo = ctx.createOscillator();
+        const lfoGain = ctx.createGain();
+        lfo.type = 'sine';
+        lfo.frequency.value = 8 + Math.random() * 4; // Rattling frequency
+        lfoGain.gain.value = intensity;
+
+        const outputGain = ctx.createGain();
+        outputGain.gain.value = 0;
+
+        // Envelope
+        const now = ctx.currentTime;
+        outputGain.gain.setValueAtTime(0, now);
+        outputGain.gain.linearRampToValueAtTime(intensity, now + 0.05);
+        outputGain.gain.setValueAtTime(intensity, now + duration * 0.3);
+        outputGain.gain.exponentialRampToValueAtTime(0.001, now + duration);
+
+        lfo.connect(lfoGain);
+        lfoGain.connect(outputGain.gain);
+        noise.connect(filter);
+        filter.connect(outputGain);
+        outputGain.connect(destination);
+
+        noise.start();
+        lfo.start();
+        noise.stop(ctx.currentTime + duration + 0.1);
+        lfo.stop(ctx.currentTime + duration + 0.1);
+    }
+
+    /**
+     * Create wood/material creak sound
+     */
+    function createCreak(ctx, destination, gain = 0.1) {
+        const duration = 0.1 + Math.random() * 0.15;
+        const freq = 150 + Math.random() * 200;
+
+        const osc = ctx.createOscillator();
+        const filter = ctx.createBiquadFilter();
+        const creakGain = ctx.createGain();
+
+        osc.type = 'sawtooth';
+        osc.frequency.value = freq;
+        // Frequency bend (creak characteristic)
+        osc.frequency.setValueAtTime(freq, ctx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(freq * (0.8 + Math.random() * 0.4), ctx.currentTime + duration);
+
+        filter.type = 'bandpass';
+        filter.frequency.value = freq * 1.5;
+        filter.Q.value = 5;
+
+        const now = ctx.currentTime;
+        creakGain.gain.setValueAtTime(0, now);
+        creakGain.gain.linearRampToValueAtTime(gain, now + 0.01);
+        creakGain.gain.exponentialRampToValueAtTime(0.001, now + duration);
+
+        osc.connect(filter);
+        filter.connect(creakGain);
+        creakGain.connect(destination);
+
+        osc.start(now);
+        osc.stop(now + duration + 0.05);
+
+        return osc;
+    }
+
+    /**
+     * Schedule creaks at random intervals
+     */
+    function scheduleCreaks(ctx, destination, minInterval, maxInterval, gain = 0.1) {
+        let timeoutId = null;
+        let isRunning = false;
+
+        function scheduleNext() {
+            if (!isRunning) return;
+            const interval = (minInterval + Math.random() * (maxInterval - minInterval)) * 1000;
+            timeoutId = setTimeout(() => {
+                if (!isRunning) return;
+                createCreak(ctx, destination, gain);
+                scheduleNext();
+            }, interval);
+        }
+
+        return {
+            start: () => {
+                isRunning = true;
+                scheduleNext();
+            },
+            stop: () => {
+                isRunning = false;
+                if (timeoutId) clearTimeout(timeoutId);
+            }
+        };
+    }
+
+    /**
+     * Create distant filtered cicadas (heard through closed window)
+     */
+    function createFilteredCicadas(ctx, count = 4) {
+        const insects = [];
+        const masterGain = ctx.createGain();
+        const windowFilter = ctx.createBiquadFilter();
+
+        // Window glass filters out high frequencies
+        windowFilter.type = 'lowpass';
+        windowFilter.frequency.value = 2000;
+        windowFilter.Q.value = 0.5;
+
+        masterGain.gain.value = 0;
+
+        for (let i = 0; i < count; i++) {
+            const carrierFreq = 3000 + Math.random() * 2000;
+            const modFreq = 10 + Math.random() * 8;
+            const insect = createAMSynth(ctx, carrierFreq, modFreq, 0.6);
+            insect.gain.gain.value = 0.02;
+            insect.connect(windowFilter);
+            insects.push(insect);
+        }
+
+        windowFilter.connect(masterGain);
+
+        let driftInterval = null;
+
+        return {
+            insects,
+            gain: masterGain,
+            start: () => {
+                insects.forEach(i => i.start());
+                driftInterval = setInterval(() => {
+                    insects.forEach(insect => {
+                        insect.setCarrierFreq(3000 + Math.random() * 2000);
+                        insect.setModFreq(10 + Math.random() * 8);
+                    });
+                }, 4000 + Math.random() * 4000);
+            },
+            stop: () => {
+                insects.forEach(i => {
+                    try { i.stop(); } catch(e) {}
+                });
+                if (driftInterval) clearInterval(driftInterval);
+            },
+            connect: (dest) => masterGain.connect(dest)
+        };
+    }
+
+    // ============================================
     // PUBLIC API
     // ============================================
 
@@ -540,6 +906,15 @@ const Synthesis = (function() {
         createRoomTone,
         createWind,
         createReverbImpulse,
-        createReverb
+        createReverb,
+        // Domestic sounds
+        createApplianceCycle,
+        createDripWithReverb,
+        scheduleDripsWithReverb,
+        createMechanicalHum,
+        createGlassVibration,
+        createCreak,
+        scheduleCreaks,
+        createFilteredCicadas
     };
 })();
