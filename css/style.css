@@ -128,7 +128,7 @@ html, body {
     position: fixed;
     inset: 0;
     background: var(--heated-bg);
-    transition: background-color 2.5s ease-out;
+    transition: background-color 1.5s ease-out;
     cursor: crosshair;
 }
 

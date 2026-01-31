@@ -1,6 +1,7 @@
 // ============================================
 // DWELL:REFUGE - Audio Engine
 // Climate refuge soundscape with positioned zones
+// Optimized for production
 // ============================================
 
 const RefugeAudio = (function() {
@@ -9,6 +10,7 @@ const RefugeAudio = (function() {
     let audioContext = null;
     let masterGain = null;
     let isRunning = false;
+    let isPaused = false;
 
     // Spatial processing nodes
     let reverbNode = null;
@@ -21,10 +23,27 @@ const RefugeAudio = (function() {
     // Active zone sources
     let activeSources = [];
 
-    // Distance attenuation parameters
-    const SOURCE_GAIN_MAX_CORNER = 0.8;  // Hostile zones (corners) - LOUD
-    const SOURCE_GAIN_MAX_CENTER = 0.4;  // Refuge zone (center) - subtle
-    const DISTANCE_FACTOR = 10;           // Steep falloff for focused listening
+    // Animation frame ID for cleanup
+    let animationFrameId = null;
+
+    // Per-zone gain levels (optimized hierarchy)
+    const ZONE_GAINS = {
+        storm: 0.7,      // Enveloping but not saturating
+        heat: 0.5,       // Quiet = more oppressive
+        flood: 0.75,     // Claustrophobic presence
+        drought: 0.6,    // Empty, less is more
+        refuge: 0.3      // Almost subliminal - the calm
+    };
+
+    const DISTANCE_FACTOR = 12;  // Steep falloff for focused listening
+
+    // Smoothing time constants (seconds)
+    const SMOOTH = {
+        zoneGain: 0.15,      // Zone crossfade
+        filter: 0.08,        // Filter sweep
+        reverb: 0.12,        // Wet/dry mix
+        delay: 0.12          // Delay amount
+    };
 
     // Current cursor position (0-1)
     let position = { x: 0.5, y: 0.5 };
@@ -44,16 +63,17 @@ const RefugeAudio = (function() {
         masterGain.connect(audioContext.destination);
 
         // Global filter (responds to Y position)
+        // Range: 400Hz (muffled) to 12000Hz (bright)
         filterNode = audioContext.createBiquadFilter();
         filterNode.type = 'lowpass';
-        filterNode.frequency.value = 8000;
-        filterNode.Q.value = 0.5;
+        filterNode.frequency.value = 6000;
+        filterNode.Q.value = 0.7;
 
         // Delay effect
         delayNode = audioContext.createDelay(2);
-        delayNode.delayTime.value = 0.35;
+        delayNode.delayTime.value = 0.3;
         delayFeedback = audioContext.createGain();
-        delayFeedback.gain.value = 0.25;
+        delayFeedback.gain.value = 0.2;
         delayGain = audioContext.createGain();
         delayGain.gain.value = 0;
 
@@ -61,9 +81,9 @@ const RefugeAudio = (function() {
         delayFeedback.connect(delayNode);
         delayNode.connect(delayGain);
 
-        // Reverb
+        // Reverb (shorter, more room-like)
         reverbNode = audioContext.createConvolver();
-        reverbNode.buffer = Synthesis.createReverbImpulse(audioContext, 4, 2);
+        reverbNode.buffer = Synthesis.createReverbImpulse(audioContext, 2.5, 2.5);
         reverbGain = audioContext.createGain();
         reverbGain.gain.value = 0;
         reverbNode.connect(reverbGain);
@@ -74,14 +94,61 @@ const RefugeAudio = (function() {
         filterNode.connect(masterGain);
         delayGain.connect(masterGain);
         reverbGain.connect(masterGain);
+
+        // Tab visibility handling
+        setupVisibilityHandling();
+    }
+
+    // ============================================
+    // TAB VISIBILITY HANDLING
+    // ============================================
+
+    function setupVisibilityHandling() {
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden) {
+                pauseAudio();
+            } else {
+                resumeAudio();
+            }
+        });
+    }
+
+    function pauseAudio() {
+        if (!isRunning || isPaused) return;
+        isPaused = true;
+
+        // Fade out quickly
+        if (masterGain) {
+            masterGain.gain.setTargetAtTime(0, audioContext.currentTime, 0.3);
+        }
+
+        // Suspend context to save CPU
+        if (audioContext && audioContext.state === 'running') {
+            audioContext.suspend();
+        }
+    }
+
+    function resumeAudio() {
+        if (!isRunning || !isPaused) return;
+        isPaused = false;
+
+        // Resume context
+        if (audioContext && audioContext.state === 'suspended') {
+            audioContext.resume();
+        }
+
+        // Fade back in
+        if (masterGain) {
+            masterGain.gain.setTargetAtTime(1, audioContext.currentTime, 0.5);
+        }
     }
 
     // ============================================
     // SMOOTH PARAMETER TRANSITIONS
     // ============================================
 
-    function smoothParam(param, value, time) {
-        param.setTargetAtTime(value, audioContext.currentTime, time);
+    function smoothParam(param, value, timeConstant) {
+        param.setTargetAtTime(value, audioContext.currentTime, timeConstant);
     }
 
     // ============================================
@@ -95,13 +162,16 @@ const RefugeAudio = (function() {
             // Create zone with its soundscape
             const zone = zoneDef.create(audioContext, filterNode);
 
+            // Get optimized gain for this zone
+            const maxGain = ZONE_GAINS[zoneDef.name] || 0.5;
+
             activeSources.push({
                 name: zoneDef.name,
                 x: zoneDef.x,
                 y: zoneDef.y,
                 gainNode: zone.gainNode,
                 cleanup: zone.cleanup,
-                maxGain: zoneDef.name === 'refuge' ? SOURCE_GAIN_MAX_CENTER : SOURCE_GAIN_MAX_CORNER
+                maxGain: maxGain
             });
         });
     }
@@ -112,10 +182,10 @@ const RefugeAudio = (function() {
             const dy = position.y - source.y;
             const distance = Math.sqrt(dx * dx + dy * dy);
 
-            // Inverse distance attenuation
+            // Inverse distance attenuation with steeper falloff
             const gain = source.maxGain / (1 + distance * DISTANCE_FACTOR);
 
-            smoothParam(source.gainNode.gain, gain, 0.1);
+            smoothParam(source.gainNode.gain, gain, SMOOTH.zoneGain);
         });
     }
 
@@ -124,30 +194,35 @@ const RefugeAudio = (function() {
     // ============================================
 
     function updateGlobalEffects() {
-        if (!audioContext || !isRunning) return;
+        if (!audioContext || !isRunning || isPaused) {
+            if (isRunning && !isPaused) {
+                animationFrameId = requestAnimationFrame(updateGlobalEffects);
+            }
+            return;
+        }
 
         // Y position affects depth:
-        // Y = 0 (top) = bright, dry
-        // Y = 1 (bottom) = muffled, wet
+        // Y = 0 (top) = bright, dry, present
+        // Y = 1 (bottom) = muffled, wet, distant
         const depth = position.y;
 
-        // Filter: 200Hz - 16000Hz sweep
-        const filterFreq = 200 + (1 - depth) * 15800;
-        smoothParam(filterNode.frequency, filterFreq, 0.03);
+        // Filter: 400Hz - 12000Hz sweep (more dramatic range)
+        const filterFreq = 400 + (1 - depth) * 11600;
+        smoothParam(filterNode.frequency, filterFreq, SMOOTH.filter);
 
-        // Reverb: 0.05 - 0.6
-        const reverbAmount = 0.05 + depth * 0.55;
-        smoothParam(reverbGain.gain, reverbAmount, 0.05);
+        // Reverb: 0.08 - 0.45 (subtle to noticeable)
+        const reverbAmount = 0.08 + depth * 0.37;
+        smoothParam(reverbGain.gain, reverbAmount, SMOOTH.reverb);
 
-        // Delay: 0 - 0.5
-        const delayAmount = depth * 0.5;
-        smoothParam(delayGain.gain, delayAmount, 0.05);
-        smoothParam(delayFeedback.gain, depth * 0.4, 0.05);
+        // Delay: 0 - 0.35 (none to subtle echo)
+        const delayAmount = depth * 0.35;
+        smoothParam(delayGain.gain, delayAmount, SMOOTH.delay);
+        smoothParam(delayFeedback.gain, 0.15 + depth * 0.2, SMOOTH.delay);
 
         // Update zone gains based on distance
         updateZoneGains();
 
-        requestAnimationFrame(updateGlobalEffects);
+        animationFrameId = requestAnimationFrame(updateGlobalEffects);
     }
 
     // ============================================
@@ -165,6 +240,7 @@ const RefugeAudio = (function() {
             }
 
             isRunning = true;
+            isPaused = false;
 
             // Create all zone sources
             createZoneSources();
@@ -180,6 +256,13 @@ const RefugeAudio = (function() {
         stop: function() {
             if (!isRunning) return;
             isRunning = false;
+            isPaused = false;
+
+            // Cancel animation frame
+            if (animationFrameId) {
+                cancelAnimationFrame(animationFrameId);
+                animationFrameId = null;
+            }
 
             // Cleanup all zone sources
             activeSources.forEach(source => {
@@ -187,8 +270,9 @@ const RefugeAudio = (function() {
             });
             activeSources = [];
 
+            // Fade out with smooth decay
             if (masterGain) {
-                masterGain.gain.setTargetAtTime(0, audioContext.currentTime, 1);
+                masterGain.gain.setTargetAtTime(0, audioContext.currentTime, 0.5);
             }
         },
 
@@ -198,7 +282,7 @@ const RefugeAudio = (function() {
         },
 
         isRunning: function() {
-            return isRunning;
+            return isRunning && !isPaused;
         },
 
         getZoneSources: function() {

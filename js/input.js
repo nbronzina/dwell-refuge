@@ -1,6 +1,7 @@
 // ============================================
 // DWELL:REFUGE - Input Handler
 // Cursor tracking with zone-based color response
+// Optimized with throttling for performance
 // ============================================
 
 const RefugeInput = (function() {
@@ -12,6 +13,10 @@ const RefugeInput = (function() {
     let lastPosition = { x: 0.5, y: 0.5 };
     let velocity = 0;
     let lastMoveTime = 0;
+
+    // Throttling for audio updates (~30fps is enough for smooth audio)
+    const AUDIO_THROTTLE_MS = 33;
+    let lastAudioUpdate = 0;
 
     // Smoothing for velocity calculation
     const VELOCITY_SMOOTHING = 0.1;
@@ -110,11 +115,12 @@ const RefugeInput = (function() {
     }
 
     function updatePosition(x, y, screenX, screenY) {
+        const now = performance.now();
+
         // Calculate velocity from movement
         const dx = x - lastPosition.x;
         const dy = y - lastPosition.y;
         const distance = Math.sqrt(dx * dx + dy * dy);
-        const now = performance.now();
         const dt = now - lastMoveTime;
 
         if (dt > 0) {
@@ -126,19 +132,24 @@ const RefugeInput = (function() {
         lastPosition.y = y;
         lastMoveTime = now;
 
-        // Update cursor position
+        // Update cursor position (every frame for smooth visuals)
         if (cursor) {
             cursor.style.left = screenX + 'px';
             cursor.style.top = screenY + 'px';
         }
 
-        // Send to audio engine
-        if (typeof RefugeAudio !== 'undefined') {
-            RefugeAudio.setPosition(x, y);
-        }
+        // Throttle audio updates (~30fps is sufficient for smooth transitions)
+        if (now - lastAudioUpdate >= AUDIO_THROTTLE_MS) {
+            lastAudioUpdate = now;
 
-        // Update background color
-        updateBackgroundColor(x, y);
+            // Send to audio engine
+            if (typeof RefugeAudio !== 'undefined') {
+                RefugeAudio.setPosition(x, y);
+            }
+
+            // Update background color (can also be throttled)
+            updateBackgroundColor(x, y);
+        }
     }
 
     function updateVelocity() {
