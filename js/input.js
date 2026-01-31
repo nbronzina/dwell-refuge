@@ -18,13 +18,13 @@ const RefugeInput = (function() {
     const VELOCITY_DECAY = 0.95;
 
     // Zone colors (subtle tints based on climate zones)
-    // Base is #0a0a0a (10, 10, 10)
+    // Base is Heated brown #332b28 (51, 43, 40)
     const ZONE_COLORS = {
-        topLeft:     { r: 10, g: 10, b: 16 },  // Storm - blue-ish
-        topRight:    { r: 16, g: 10, b: 10 },  // Heat - orange-ish
-        bottomLeft:  { r: 10, g: 15, b: 16 },  // Flood - teal-ish
-        bottomRight: { r: 15, g: 13, b: 10 },  // Drought - brown-ish
-        center:      { r: 12, g: 12, b: 12 }   // Refuge - neutral gray
+        topLeft:     { r: 51, g: 43, b: 48 },  // Storm #332b30 - blue-ish tint
+        topRight:    { r: 58, g: 43, b: 40 },  // Heat #3a2b28 - red-ish tint
+        bottomLeft:  { r: 43, g: 50, b: 48 },  // Flood #2b3230 - green-ish tint
+        bottomRight: { r: 56, g: 50, b: 43 },  // Drought #38322b - yellow-ish tint
+        center:      { r: 51, g: 43, b: 40 }   // Refuge #332b28 - neutral brown
     };
 
     // Interpolate color based on position

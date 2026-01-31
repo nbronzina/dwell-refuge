@@ -4,11 +4,11 @@
    ============================================ */
 
 :root {
-    --refuge-bg: #0a0a0a;
-    --refuge-text: #1a1a1a;
-    --refuge-text-hover: #333;
-    --refuge-text-active: #666;
-    --refuge-accent: #555;
+    --heated-bg: #332b28;
+    --heated-text: #ffffff;
+    --heated-accent: #fdd0a5;
+    --heated-text-dim: rgba(255, 255, 255, 0.5);
+    --heated-accent-dim: rgba(253, 208, 165, 0.5);
 }
 
 * {
@@ -21,9 +21,10 @@ html, body {
     width: 100%;
     height: 100%;
     overflow: hidden;
-    background: var(--refuge-bg);
+    background: var(--heated-bg);
     font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    cursor: none;
+    color: var(--heated-text);
+    cursor: crosshair;
 }
 
 /* Entry Screen */
@@ -33,7 +34,7 @@ html, body {
     display: flex;
     align-items: center;
     justify-content: center;
-    background: var(--refuge-bg);
+    background: var(--heated-bg);
     z-index: 100;
     transition: opacity 1s ease-out;
     cursor: default;
@@ -46,48 +47,68 @@ html, body {
 
 .entry-content {
     text-align: center;
+    max-width: 540px;
+    padding: 2rem;
 }
 
 .entry-title {
-    font-size: 1.4rem;
+    font-size: 1.6rem;
     font-weight: 300;
-    color: #555;
+    color: var(--heated-text);
     letter-spacing: 0.08em;
-    margin-bottom: 3rem;
+    margin-bottom: 2.5rem;
 }
 
 .entry-title .colon {
-    color: #444;
+    color: var(--heated-accent);
+}
+
+.entry-text {
+    margin-bottom: 2.5rem;
+    text-align: left;
+}
+
+.entry-text p {
+    font-size: 0.9rem;
+    font-weight: 300;
+    line-height: 1.7;
+    color: var(--heated-text);
+    margin-bottom: 1.2rem;
+    opacity: 0.85;
+}
+
+.entry-text p:last-child {
+    margin-bottom: 0;
 }
 
 .entry-button {
     background: none;
-    border: 1px solid #333;
+    border: 1px solid var(--heated-accent);
     border-radius: 2px;
     font-family: inherit;
     font-size: 0.85rem;
     font-weight: 400;
-    color: #555;
+    color: var(--heated-accent);
     letter-spacing: 0.12em;
     cursor: pointer;
-    padding: 0.8rem 2rem;
+    padding: 0.8rem 2.5rem;
     transition: all 0.2s ease;
 }
 
 .entry-button:hover {
-    color: #888;
-    border-color: #555;
+    background: var(--heated-accent);
+    color: var(--heated-bg);
 }
 
 .entry-button:active {
-    color: #aaa;
+    opacity: 0.8;
 }
 
 .entry-hint {
     margin-top: 2rem;
     font-size: 0.7rem;
     font-weight: 300;
-    color: #444;
+    color: var(--heated-text-dim);
     letter-spacing: 0.12em;
 }
 
@@ -98,7 +119,7 @@ html, body {
     transform: translateX(-50%);
     font-size: 0.65rem;
     font-weight: 300;
-    color: #333;
+    color: var(--heated-text-dim);
     letter-spacing: 0.05em;
 }
 
@@ -106,8 +127,9 @@ html, body {
 .sound-space {
     position: fixed;
     inset: 0;
-    background: var(--refuge-bg);
+    background: var(--heated-bg);
     transition: background-color 2.5s ease-out;
+    cursor: crosshair;
 }
 
 .sound-space.hidden {
@@ -122,7 +144,7 @@ html, body {
     transform: translateX(-50%);
     font-size: 0.7rem;
     font-weight: 300;
-    color: var(--refuge-text);
+    color: var(--heated-text-dim);
     letter-spacing: 0.15em;
     opacity: 0;
     transition: opacity 2s ease;
@@ -137,35 +159,6 @@ html, body {
     opacity: 0;
 }
 
-/* Custom cursor */
-.cursor {
-    position: fixed;
-    width: 8px;
-    height: 8px;
-    background: var(--refuge-text);
-    border-radius: 50%;
-    pointer-events: none;
-    transform: translate(-50%, -50%);
-    transition: opacity 0.3s ease, transform 0.1s ease;
-    z-index: 1000;
-    mix-blend-mode: difference;
-}
-
-.cursor.hidden {
-    opacity: 0;
-}
-
-/* Touch indicator */
-@media (hover: none) {
-    html, body {
-        cursor: default;
-    }
-
-    .cursor {
-        display: none;
-    }
-}
-
 /* Back link */
 .back-link {
     position: fixed;
@@ -173,11 +166,11 @@ html, body {
     left: 1.5rem;
     font-size: 0.75rem;
     font-weight: 400;
-    color: #444;
+    color: var(--heated-accent-dim);
     text-decoration: none;
     letter-spacing: 0.08em;
     padding: 0.5rem 0.8rem;
-    border: 1px solid #2a2a2a;
+    border: 1px solid var(--heated-accent-dim);
     border-radius: 2px;
     z-index: 200;
     transition: all 0.2s ease;
@@ -185,12 +178,19 @@ html, body {
 }
 
 .back-link:hover {
-    color: #666;
-    border-color: #444;
+    color: var(--heated-accent);
+    border-color: var(--heated-accent);
 }
 
 /* Prevent text selection */
 .entry-screen, .sound-space {
     user-select: none;
     -webkit-user-select: none;
+}
+
+/* Touch devices */
+@media (hover: none) {
+    html, body, .sound-space {
+        cursor: default;
+    }
 }
