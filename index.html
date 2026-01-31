@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>dwell:refuge</title>
+    <meta name="description" content="A climate refuge soundscape. The center is where you want to stay. The corners are where you want to escape from.">
+
+    <!-- Favicon -->
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%230a0a0a'/%3E%3Ccircle cx='16' cy='16' r='4' fill='%231a1a1a'/%3E%3C/svg%3E">
+
+    <!-- Theme color -->
+    <meta name="theme-color" content="#0a0a0a">
+
+    <!-- Open Graph -->
+    <meta property="og:title" content="dwell:refuge">
+    <meta property="og:description" content="A climate refuge soundscape by Heated Studio">
+    <meta property="og:type" content="website">
+
+    <!-- Stylesheet -->
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <!-- Back link -->
+    <a href="https://heated.studio" class="back-link" target="_blank" rel="noopener">&larr;</a>
+
+    <!-- Entry Screen -->
+    <div id="entry" class="entry-screen">
+        <div class="entry-content">
+            <h1 class="entry-title">dwell<span class="colon">:</span>refuge</h1>
+            <button id="enterBtn" class="entry-button">enter</button>
+            <p class="entry-hint">headphones recommended</p>
+        </div>
+        <p class="entry-credit">Built with mk-dwell engine by Playground</p>
+    </div>
+
+    <!-- Sound Space (hidden until entered) -->
+    <div id="space" class="sound-space hidden">
+        <div class="space-hint" id="hint">move</div>
+    </div>
+
+    <!-- Scripts (order matters: synthesis -> zones -> audio -> input -> main) -->
+    <script src="js/synthesis.js"></script>
+    <script src="js/zones.js"></script>
+    <script src="js/audio.js"></script>
+    <script src="js/input.js"></script>
+    <script src="js/main.js"></script>
+</body>
+</html>
