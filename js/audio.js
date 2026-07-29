@@ -398,7 +398,15 @@ const RefugeAudio = (function() {
 
         Zones.ZONE_SOURCES.forEach(zoneDef => {
             const zoneOut = createZoneOutput(zoneDef);
-            zoneOut.connect(filterNode);
+
+            // Air absorption: distant zones lose highs as well as
+            // volume - the strongest distance cue after loudness
+            const distFilter = audioContext.createBiquadFilter();
+            distFilter.type = 'lowpass';
+            distFilter.frequency.value = 16000;
+            distFilter.Q.value = 0.4;
+            zoneOut.connect(distFilter);
+            distFilter.connect(filterNode);
 
             // Create zone with its soundscape
             const zone = zoneDef.create(audioContext, zoneOut);
@@ -412,8 +420,10 @@ const RefugeAudio = (function() {
                 y: zoneDef.y,
                 gainNode: zone.gainNode,
                 trigger: zone.trigger,
+                setProximity: zone.setProximity,
                 cleanup: zone.cleanup,
                 output: zoneOut,
+                distFilter: distFilter,
                 maxGain: maxGain,
                 evolutionGain: maxGain,
                 evolutionFactor: 0
@@ -437,6 +447,15 @@ const RefugeAudio = (function() {
             const gain = (source.evolutionGain * stillnessBoost) / (1 + distance * DISTANCE_FACTOR);
 
             smoothParam(source.gainNode.gain, gain, SMOOTH.zoneGain);
+
+            // Air absorption: near = full spectrum, far = muffled
+            const cutoff = Math.max(1500, 16000 / (1 + distance * 6));
+            smoothParam(source.distFilter.frequency, cutoff, SMOOTH.filter);
+
+            // Element mix shifts with the listener's spot in the room
+            if (source.setProximity) {
+                source.setProximity(dx / 0.5, dy / 0.5);
+            }
         });
     }
 
@@ -510,6 +529,9 @@ const RefugeAudio = (function() {
             if (source.cleanup) source.cleanup();
             if (source.output) {
                 try { source.output.disconnect(); } catch(e) {}
+            }
+            if (source.distFilter) {
+                try { source.distFilter.disconnect(); } catch(e) {}
             }
         });
         activeSources = [];

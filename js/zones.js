@@ -1,7 +1,11 @@
 // ============================================
 // DWELL:REFUGE - Zone Definitions
 // Future mundane: domestic sounds under climate stress
-// Optimized for production
+//
+// Each zone is a room. Its elements sit at fixed spots in the
+// stereo field (the rain at the window, the drip in the corner),
+// and the mix shifts as the listener moves within the zone -
+// approach the window and the rain comes forward.
 // ============================================
 
 const Zones = (function() {
@@ -12,11 +16,47 @@ const Zones = (function() {
         document.dispatchEvent(new CustomEvent('refuge:event', { detail: { type: type } }));
     }
 
+    function clamp(v, lo, hi) {
+        return Math.min(hi, Math.max(lo, v));
+    }
+
+    /**
+     * An element bus: a gain (for proximity mixing) feeding a fixed
+     * stereo position. Connect an element to the returned gain node;
+     * adjust .gain to bring the element closer or further.
+     */
+    function createBus(ctx, destination, pan) {
+        const g = ctx.createGain();
+        g.gain.value = 1;
+        if (pan && ctx.createStereoPanner) {
+            const p = ctx.createStereoPanner();
+            p.pan.value = pan;
+            g.connect(p);
+            p.connect(destination);
+        } else {
+            g.connect(destination);
+        }
+        return g;
+    }
+
+    /**
+     * One-shot random placement: returns a destination panned to a
+     * random spot within ±spread, self-detaching after lifeMs
+     */
+    function randomSpot(ctx, destination, spread, lifeMs) {
+        if (!ctx.createStereoPanner) return destination;
+        const p = ctx.createStereoPanner();
+        p.pan.value = (Math.random() * 2 - 1) * spread;
+        p.connect(destination);
+        setTimeout(() => { try { p.disconnect(); } catch(e) {} }, lifeMs);
+        return p;
+    }
+
     // ============================================
     // STORM ZONE [0.1, 0.1]
     // Being inside during the storm
     // Balance: Rain 60%, Leak 25%, Events 15%
-    // Timbre: Bandpass noise (800-3000Hz) - "shhh" character
+    // Room: window up-left, leak deeper in, down-right
     // ============================================
 
     function createStormZone(ctx, destination) {
@@ -29,11 +69,19 @@ const Zones = (function() {
         zoneReverb.connect(destination);
 
         const cleanupFns = [];
+        let disposed = false;
+        cleanupFns.push(() => { disposed = true; });
 
-        // 1. Rain on window - PINK noise, bandpass for "shhh" character (60%)
+        // Element placement
+        const rainBus = createBus(ctx, masterGain, -0.4);    // the window, left
+        const blindsBus = createBus(ctx, masterGain, -0.6);  // blinds by the window
+        const leakBus = createBus(ctx, masterGain, 0.5);     // leak, right, deeper in
+        const outsideBus = createBus(ctx, masterGain, 0);    // thunder, everywhere
+
+        // 1. Rain on window - wash (60%)
         const rainOnGlass = Synthesis.createFilteredNoise(ctx, 'pink', 'bandpass', 1800, 1.2);
-        rainOnGlass.gain.gain.value = 0.18;  // Primary layer
-        rainOnGlass.connect(masterGain);
+        rainOnGlass.gain.gain.value = 0.18;
+        rainOnGlass.connect(rainBus);
         rainOnGlass.start();
         cleanupFns.push(() => { try { rainOnGlass.stop(); } catch(e) {} });
 
@@ -41,39 +89,39 @@ const Zones = (function() {
         const rainLfo = ctx.createOscillator();
         const rainLfoGain = ctx.createGain();
         rainLfo.type = 'sine';
-        rainLfo.frequency.value = 0.06;  // Slower gusts
+        rainLfo.frequency.value = 0.06;
         rainLfoGain.gain.value = 0.05;
         rainLfo.connect(rainLfoGain);
         rainLfoGain.connect(rainOnGlass.gain.gain);
         rainLfo.start();
         cleanupFns.push(() => { try { rainLfo.stop(); } catch(e) {} });
 
-        // 2. Interior leak - distinctive drip (25%)
-        // Semi-regular 2-4 seconds (like a real leak)
-        const leak = Synthesis.scheduleDripsWithReverb(ctx, masterGain, 2, 4, 'room', 0.15);
+        // 1b. Individual raindrops across the glass
+        const patter = Synthesis.createRainPatter(ctx, rainBus, 7, 0.04);
+        patter.start();
+        cleanupFns.push(() => patter.stop());
+
+        // 2. Interior leak - distinctive drip, semi-regular 2-4s (25%)
+        const leak = Synthesis.scheduleDripsWithReverb(ctx, leakBus, 2, 4, 'room', 0.15);
         leak.start();
         cleanupFns.push(() => leak.stop());
 
         // 3. Blind rattling - 8-20 seconds (wind gusts) (10%)
         const blindScheduler = Synthesis.createScheduler(8, 20, () => {
-            Synthesis.createNoiseBurst(ctx, masterGain, 180 + Math.random() * 80, 0.06, 10);
+            Synthesis.createNoiseBurst(ctx, blindsBus, 180 + Math.random() * 80, 0.06, 10);
         });
         blindScheduler.start();
         cleanupFns.push(() => blindScheduler.stop());
 
         // 4. Thunder + glass vibration - 15-45 seconds (5%)
-        let disposed = false;
-        cleanupFns.push(() => { disposed = true; });
-
         function thunderEvent() {
             if (disposed) return;
-            // Distant thunder
-            Synthesis.createNoiseBurst(ctx, masterGain, 60 + Math.random() * 40, 2, 0.6);
+            Synthesis.createThunder(ctx, outsideBus, 0.5);
             dispatchZoneEvent('thunder');
-            // Glass vibration after thunder
+            // The window answers the thunder
             setTimeout(() => {
                 if (disposed) return;
-                Synthesis.createGlassVibration(ctx, masterGain, 0.04, 1.2 + Math.random() * 0.8);
+                Synthesis.createGlassVibration(ctx, rainBus, 0.04, 1.2 + Math.random() * 0.8);
                 dispatchZoneEvent('glass');
             }, 150 + Math.random() * 250);
         }
@@ -82,9 +130,20 @@ const Zones = (function() {
         thunderScheduler.start();
         cleanupFns.push(() => thunderScheduler.stop());
 
+        // Moving up-left approaches the window; down-right goes
+        // deeper into the room, toward the leak
+        function setProximity(dx, dy) {
+            const toWindow = clamp(-(dx + dy) * 0.5, -1, 1);
+            const now = ctx.currentTime;
+            rainBus.gain.setTargetAtTime(1 + toWindow * 0.3, now, 0.25);
+            blindsBus.gain.setTargetAtTime(1 + toWindow * 0.3, now, 0.25);
+            leakBus.gain.setTargetAtTime(1 - toWindow * 0.35, now, 0.25);
+        }
+
         return {
             gainNode: masterGain,
             trigger: thunderEvent,
+            setProximity: setProximity,
             cleanup: () => cleanupFns.forEach(fn => fn())
         };
     }
@@ -93,7 +152,7 @@ const Zones = (function() {
     // HEAT ZONE [0.9, 0.1]
     // August siesta - 3pm, everything closed
     // Balance: AC 50%, Fridge 30%, Cicadas 15%, Fan 5%
-    // Timbre: Brown/red noise lowpass 200Hz - "mmmmm" character
+    // Room: AC unit left, kitchen right, window behind, fan above
     // ============================================
 
     function createHeatZone(ctx, destination) {
@@ -107,38 +166,43 @@ const Zones = (function() {
 
         const cleanupFns = [];
 
-        // 1. Air conditioning - BROWN/low noise character (50%)
+        // Element placement
+        const acBus = createBus(ctx, masterGain, -0.5);      // AC unit, left
+        const kitchenBus = createBus(ctx, masterGain, 0.6);  // fridge, right
+        const windowBus = createBus(ctx, masterGain, -0.3);  // cicadas outside
+        const overheadBus = createBus(ctx, masterGain, 0);   // ceiling fan
+
+        // 1. Air conditioning - low constant wash (50%)
         const ac = Synthesis.createFilteredNoise(ctx, 'pink', 'lowpass', 180, 0.5);
-        ac.gain.gain.value = 0.14;  // Primary constant layer
-        ac.connect(masterGain);
+        ac.gain.gain.value = 0.14;
+        ac.connect(acBus);
         ac.start();
         cleanupFns.push(() => { try { ac.stop(); } catch(e) {} });
 
         // AC compressor undertone
         const acCompressor = Synthesis.createMechanicalHum(ctx, 50, 0.2, 0.8);
         acCompressor.gain.gain.value = 0.05;
-        acCompressor.connect(masterGain);
+        acCompressor.connect(acBus);
         acCompressor.start();
         cleanupFns.push(() => { try { acCompressor.stop(); } catch(e) {} });
 
         // 2. Fridge cycling - distinctive event (30%)
-        // On: 40-90s, Off: 60-120s
         const fridge = Synthesis.createApplianceCycle(ctx, 85, 40, 90);
-        fridge.connect(masterGain);
+        fridge.connect(kitchenBus);
         fridge.start();
         cleanupFns.push(() => fridge.stop());
 
         // 3. Distant cicadas through window (15%)
         const cicadas = Synthesis.createFilteredCicadas(ctx, 3);
         cicadas.gain.gain.value = 0.05;
-        cicadas.connect(masterGain);
+        cicadas.connect(windowBus);
         cicadas.start();
         cleanupFns.push(() => cicadas.stop());
 
         // 4. Ceiling fan - barely perceptible (5%)
         const fan = Synthesis.createMechanicalHum(ctx, 32, 1.2, 2);
         fan.gain.gain.value = 0.015;
-        fan.connect(masterGain);
+        fan.connect(overheadBus);
         fan.start();
         cleanupFns.push(() => { try { fan.stop(); } catch(e) {} });
 
@@ -157,9 +221,18 @@ const Zones = (function() {
             g.setTargetAtTime(0.05, now + 3, 1.5);
         }
 
+        // Left is the AC corner; right is the kitchen
+        function setProximity(dx, dy) {
+            const d = clamp(dx, -1, 1);
+            const now = ctx.currentTime;
+            acBus.gain.setTargetAtTime(1 - d * 0.3, now, 0.25);
+            kitchenBus.gain.setTargetAtTime(1 + d * 0.3, now, 0.25);
+        }
+
         return {
             gainNode: masterGain,
             trigger: cicadaSwell,
+            setProximity: setProximity,
             cleanup: () => cleanupFns.forEach(fn => fn())
         };
     }
@@ -168,7 +241,7 @@ const Zones = (function() {
     // REFUGE ZONE [0.5, 0.5]
     // Interior that works - normalcy
     // Balance: Room tone 60%, Vent 30%, Electrical 10%
-    // Timbre: Pure sine 60Hz + very low brown noise
+    // Room: vent right, electrical hum left, tone everywhere
     // ============================================
 
     function createRefugeZone(ctx, destination) {
@@ -182,6 +255,10 @@ const Zones = (function() {
 
         const cleanupFns = [];
 
+        // Element placement
+        const ventBus = createBus(ctx, masterGain, 0.3);        // vent, right
+        const electricalBus = createBus(ctx, masterGain, -0.4); // hum, left
+
         // 1. Room tone - fundamental presence (60%)
         const roomTone = Synthesis.createRoomTone(ctx, 55, 0.035);
         roomTone.connect(masterGain);
@@ -191,13 +268,13 @@ const Zones = (function() {
         // 2. Ventilation - very filtered, steady (30%)
         const vent = Synthesis.createFilteredNoise(ctx, 'pink', 'lowpass', 150, 0.3);
         vent.gain.gain.value = 0.025;
-        vent.connect(masterGain);
+        vent.connect(ventBus);
         vent.start();
         cleanupFns.push(() => { try { vent.stop(); } catch(e) {} });
 
         // 3. Subtle electrical presence (10%)
         const electricalPresence = Synthesis.createDrone(ctx, 100, 0.008);
-        electricalPresence.connect(masterGain);
+        electricalPresence.connect(electricalBus);
         electricalPresence.start();
         cleanupFns.push(() => { try { electricalPresence.stop(); } catch(e) {} });
 
@@ -211,7 +288,7 @@ const Zones = (function() {
             g.gain.linearRampToValueAtTime(0.008, ctx.currentTime + 0.05);
             g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.15);
             osc.connect(g);
-            g.connect(masterGain);
+            g.connect(randomSpot(ctx, masterGain, 0.5, 500));
             osc.start();
             osc.stop(ctx.currentTime + 0.2);
         }
@@ -220,9 +297,18 @@ const Zones = (function() {
         ambientScheduler.start();
         cleanupFns.push(() => ambientScheduler.stop());
 
+        // Barely there: drifting right leans toward the vent
+        function setProximity(dx, dy) {
+            const d = clamp(dx, -1, 1);
+            const now = ctx.currentTime;
+            ventBus.gain.setTargetAtTime(1 + d * 0.2, now, 0.25);
+            electricalBus.gain.setTargetAtTime(1 - d * 0.2, now, 0.25);
+        }
+
         return {
             gainNode: masterGain,
             trigger: settlingTick,
+            setProximity: setProximity,
             cleanup: () => cleanupFns.forEach(fn => fn())
         };
     }
@@ -231,7 +317,7 @@ const Zones = (function() {
     // FLOOD ZONE [0.1, 0.9]
     // Water got inside - managing the situation
     // Balance: Pipes 40%, Bucket 30%, Pump 20%, Events 10%
-    // Timbre: Pink bandpass 200-800Hz - "glugluglu" character
+    // Room: pipes in the left wall, bucket right, pump behind-left
     // ============================================
 
     function createFloodZone(ctx, destination) {
@@ -245,10 +331,15 @@ const Zones = (function() {
 
         const cleanupFns = [];
 
+        // Element placement
+        const pipesBus = createBus(ctx, masterGain, -0.5);   // wall pipes, left
+        const bucketBus = createBus(ctx, masterGain, 0.5);   // the bucket, right
+        const pumpBus = createBus(ctx, masterGain, -0.2);    // sump pump
+
         // 1. Water in pipes - constant gurgle (40%)
         const pipes = Synthesis.createFilteredNoise(ctx, 'pink', 'bandpass', 350, 2);
         pipes.gain.gain.value = 0.1;
-        pipes.connect(masterGain);
+        pipes.connect(pipesBus);
         pipes.start();
         cleanupFns.push(() => { try { pipes.stop(); } catch(e) {} });
 
@@ -263,34 +354,33 @@ const Zones = (function() {
         pipeLfo.start();
         cleanupFns.push(() => { try { pipeLfo.stop(); } catch(e) {} });
 
-        // 2. Drip into bucket - metallic, distinctive (30%)
-        // 1.5-3 seconds (faster, urgent)
-        const bucketDrip = Synthesis.scheduleDripsWithReverb(ctx, masterGain, 1.5, 3, 'metal', 0.18);
+        // 2. Drip into bucket - metallic, 1.5-3s, urgent (30%)
+        const bucketDrip = Synthesis.scheduleDripsWithReverb(ctx, bucketBus, 1.5, 3, 'metal', 0.18);
         bucketDrip.start();
         cleanupFns.push(() => bucketDrip.stop());
 
         // 3. Sump pump cycling (20%)
-        // On: 20-40s, Off: 30-60s
         const pump = Synthesis.createApplianceCycle(ctx, 75, 20, 35);
-        pump.connect(masterGain);
+        pump.connect(pumpBus);
         pump.start();
         cleanupFns.push(() => pump.stop());
 
         // Pump vibration
         const pumpVibration = Synthesis.createMechanicalHum(ctx, 42, 2.5, 4);
         pumpVibration.gain.gain.value = 0.03;
-        pumpVibration.connect(masterGain);
+        pumpVibration.connect(pumpBus);
         pumpVibration.start();
         cleanupFns.push(() => { try { pumpVibration.stop(); } catch(e) {} });
 
-        // 4. Floating objects - 15-45 seconds (7%)
+        // 4. Floating objects bumping - 15-45s, from anywhere (7%)
         const floatingScheduler = Synthesis.createScheduler(15, 45, () => {
-            Synthesis.createNoiseBurst(ctx, masterGain, 100 + Math.random() * 60, 0.12, 7);
+            Synthesis.createNoiseBurst(ctx, randomSpot(ctx, masterGain, 0.7, 800),
+                100 + Math.random() * 60, 0.12, 7);
         });
         floatingScheduler.start();
         cleanupFns.push(() => floatingScheduler.stop());
 
-        // 5. Splashes - 5-12 seconds (3%)
+        // 5. Splashes - 5-12s, from anywhere (3%)
         const splashScheduler = Synthesis.createScheduler(5, 12, () => {
             const splashBuf = Synthesis.createWhiteNoiseBuffer(ctx, 0.08);
             const splash = ctx.createBufferSource();
@@ -306,16 +396,25 @@ const Zones = (function() {
             splashGain.gain.exponentialRampToValueAtTime(0.001, now + 0.08);
             splash.connect(splashFilter);
             splashFilter.connect(splashGain);
-            splashGain.connect(masterGain);
+            splashGain.connect(randomSpot(ctx, masterGain, 0.7, 500));
             splash.start();
         });
         splashScheduler.start();
         cleanupFns.push(() => splashScheduler.stop());
 
+        // Left wall is the plumbing; the bucket sits to the right
+        function setProximity(dx, dy) {
+            const d = clamp(dx, -1, 1);
+            const now = ctx.currentTime;
+            pipesBus.gain.setTargetAtTime(1 - d * 0.3, now, 0.25);
+            bucketBus.gain.setTargetAtTime(1 + d * 0.3, now, 0.25);
+        }
+
         return {
             gainNode: masterGain,
             // Welcome trigger: a distinctive drip into the bucket
-            trigger: () => Synthesis.createDripWithReverb(ctx, masterGain, 'metal', 0.2),
+            trigger: () => Synthesis.createDripWithReverb(ctx, bucketBus, 'metal', 0.2),
+            setProximity: setProximity,
             cleanup: () => cleanupFns.forEach(fn => fn())
         };
     }
@@ -324,7 +423,7 @@ const Zones = (function() {
     // DROUGHT ZONE [0.9, 0.9]
     // Months without rain - everything dry
     // Balance: Wind 50%, Dust 20%, Faucet 20%, Creaks 10%
-    // Timbre: White highpass 1000Hz+ - "ssssss" harsh character
+    // Room: wind on both sides, faucet right, creaks everywhere
     // ============================================
 
     function createDroughtZone(ctx, destination) {
@@ -338,12 +437,24 @@ const Zones = (function() {
 
         const cleanupFns = [];
 
-        // 1. Dry wind - harsh high character (50%)
-        const wind = Synthesis.createWind(ctx, 1200, 0.05, 0.12);
-        wind.gain.gain.value = 0.1;
-        wind.connect(masterGain);
-        wind.start();
-        cleanupFns.push(() => { try { wind.stop(); } catch(e) {} });
+        // Element placement
+        const windLeftBus = createBus(ctx, masterGain, -0.5);
+        const windRightBus = createBus(ctx, masterGain, 0.5);
+        const faucetBus = createBus(ctx, masterGain, 0.6);   // dry faucet, right
+
+        // 1. Dry wind - two decorrelated layers, one per side (50%)
+        // (shared noise buffer, random start offsets keep them apart)
+        const windLeft = Synthesis.createWind(ctx, 1200, 0.05, 0.12);
+        windLeft.gain.gain.value = 0.06;
+        windLeft.connect(windLeftBus);
+        windLeft.start();
+        cleanupFns.push(() => { try { windLeft.stop(); } catch(e) {} });
+
+        const windRight = Synthesis.createWind(ctx, 1100, 0.08, 0.12);
+        windRight.gain.gain.value = 0.06;
+        windRight.connect(windRightBus);
+        windRight.start();
+        cleanupFns.push(() => { try { windRight.stop(); } catch(e) {} });
 
         // 2. Dust particles - very fine texture (20%)
         const dust = Synthesis.createFilteredNoise(ctx, 'white', 'highpass', 5000, 0.4);
@@ -364,12 +475,12 @@ const Zones = (function() {
         cleanupFns.push(() => { try { dustLfo.stop(); } catch(e) {} });
 
         // 3. Dripping faucet - 5-10 seconds (scarcity) (20%)
-        const faucet = Synthesis.scheduleDripsWithReverb(ctx, masterGain, 5, 10, 'tile', 0.12);
+        const faucet = Synthesis.scheduleDripsWithReverb(ctx, faucetBus, 5, 10, 'tile', 0.12);
         faucet.start();
         cleanupFns.push(() => faucet.stop());
 
-        // 4. Wood creaking - 25-60 seconds (10%)
-        const creaks = Synthesis.scheduleCreaks(ctx, masterGain, 25, 60, 0.06);
+        // 4. Wood creaking - 25-60s, a different beam each time (10%)
+        const creaks = Synthesis.scheduleCreaks(ctx, masterGain, 25, 60, 0.06, 0.7);
         creaks.start();
         cleanupFns.push(() => creaks.stop());
 
@@ -379,10 +490,19 @@ const Zones = (function() {
         roomPresence.start();
         cleanupFns.push(() => { try { roomPresence.stop(); } catch(e) {} });
 
+        // The kitchen faucet is to the right; wind leans away from you
+        function setProximity(dx, dy) {
+            const d = clamp(dx, -1, 1);
+            const now = ctx.currentTime;
+            faucetBus.gain.setTargetAtTime(1 + d * 0.35, now, 0.25);
+            windLeftBus.gain.setTargetAtTime(1 - d * 0.2, now, 0.25);
+        }
+
         return {
             gainNode: masterGain,
             // Welcome trigger: dry wood creak
-            trigger: () => Synthesis.createCreak(ctx, masterGain, 0.08),
+            trigger: () => Synthesis.createCreak(ctx, masterGain, 0.08, (Math.random() * 2 - 1) * 0.5),
+            setProximity: setProximity,
             cleanup: () => cleanupFns.forEach(fn => fn())
         };
     }

@@ -24,7 +24,7 @@ flood ────────── drought
 | **flood** | bottom left | Water in pipes, drips into a bucket, a sump pump, splashes |
 | **drought** | bottom right | Dry wind, dust, a scarce faucet, wood creaking |
 
-Each zone has its own acoustic space (a bright room with a window, a metallic basement, an empty diffuse expanse…) and its own stereo placement.
+Each zone is a room, not a point: its elements sit at fixed spots in the stereo field (the rain at the window on your left, the drip into the bucket on your right), one-shot events come from a different place each time, and the mix shifts as you move within the zone — approach the window and the rain comes forward. Each room also has its own acoustics (a bright room with a window, a metallic basement, an empty diffuse expanse…), and distant zones sound muffled as well as quiet.
 
 ## Interactions
 

@@ -206,6 +206,8 @@ async function main() {
     console.log('module surface');
     assert(typeof Synthesis.createScheduler === 'function', 'Synthesis exports createScheduler');
     assert(typeof Synthesis.createZoneReverb === 'function', 'Synthesis exports createZoneReverb');
+    assert(typeof Synthesis.createThunder === 'function', 'Synthesis exports createThunder');
+    assert(typeof Synthesis.createRainPatter === 'function', 'Synthesis exports createRainPatter');
     assert(Array.isArray(Zones.ZONE_SOURCES) && Zones.ZONE_SOURCES.length === 5, 'five zones defined');
 
     console.log('zone construction and cleanup');
@@ -217,7 +219,10 @@ async function main() {
             def.name + ': returns gainNode and cleanup');
         assert(typeof zone.trigger === 'function',
             def.name + ': has a welcome trigger');
-        zone.trigger();  // must not throw
+        assert(typeof zone.setProximity === 'function',
+            def.name + ': has intra-zone proximity mixing');
+        zone.trigger();             // must not throw
+        zone.setProximity(0.6, -0.4);  // must not throw
         zone.cleanup();
     });
     assert(liveSources.size === 0, 'no live sources after all zone cleanups');

@@ -267,6 +267,112 @@ const Synthesis = (function() {
         });
     }
 
+    /**
+     * Thunder: a bright initial crack decaying into a long low
+     * rumble whose amplitude undulates (the "rolling" character
+     * of real thunder), swept dark by a falling lowpass
+     */
+    function createThunder(ctx, destination, gain = 0.5) {
+        const dur = 2.5 + Math.random() * 1.5;
+        const rate = ctx.sampleRate;
+        const len = Math.floor(rate * dur);
+        const buffer = ctx.createBuffer(1, len, rate);
+        const data = buffer.getChannelData(0);
+        const undulationStep = Math.floor(rate * 0.05);
+
+        let undulation = 0.6;
+        for (let i = 0; i < len; i++) {
+            const t = i / rate;
+            // Slow random walk gives the rolling, uneven decay
+            if (i % undulationStep === 0) {
+                undulation = Math.max(0.15, Math.min(1, undulation + (Math.random() - 0.5) * 0.4));
+            }
+            const crack = t < 0.08 ? Math.exp(-t * 40) * 0.9 : 0;
+            const rumble = Math.exp(-t * 1.1) * undulation;
+            data[i] = (Math.random() * 2 - 1) * (crack + rumble);
+        }
+
+        const src = ctx.createBufferSource();
+        src.buffer = buffer;
+
+        const filter = ctx.createBiquadFilter();
+        filter.type = 'lowpass';
+        filter.frequency.setValueAtTime(900 + Math.random() * 600, ctx.currentTime);
+        filter.frequency.exponentialRampToValueAtTime(70, ctx.currentTime + 0.5);
+        filter.Q.value = 0.7;
+
+        const g = ctx.createGain();
+        g.gain.value = gain;
+
+        src.connect(filter);
+        filter.connect(g);
+        g.connect(destination);
+
+        src.start();
+        src.onended = () => {
+            try { src.disconnect(); } catch(e) {}
+            try { filter.disconnect(); } catch(e) {}
+            try { g.disconnect(); } catch(e) {}
+        };
+
+        return src;
+    }
+
+    /**
+     * Rain patter: individual raindrops hitting the glass, each a
+     * tiny damped tick at a random spot across the window. Layered
+     * over the noise wash it turns "shhh" into audible rain.
+     */
+    function createRainPatter(ctx, destination, dropsPerSec = 8, gain = 0.05) {
+        let running = false;
+        let timeout = null;
+        const canPan = !!ctx.createStereoPanner;
+
+        function drop() {
+            if (!running) return;
+
+            const freq = 2500 + Math.random() * 3500;
+            const dur = 0.008 + Math.random() * 0.012;
+            const now = ctx.currentTime;
+
+            const osc = ctx.createOscillator();
+            const g = ctx.createGain();
+            osc.type = 'sine';
+            osc.frequency.value = freq;
+            g.gain.setValueAtTime(0, now);
+            g.gain.linearRampToValueAtTime(gain * (0.3 + Math.random() * 0.7), now + 0.001);
+            g.gain.exponentialRampToValueAtTime(0.0001, now + dur);
+            osc.connect(g);
+
+            let out = g;
+            let panner = null;
+            if (canPan) {
+                panner = ctx.createStereoPanner();
+                panner.pan.value = (Math.random() * 2 - 1) * 0.8;
+                g.connect(panner);
+                out = panner;
+            }
+            out.connect(destination);
+
+            osc.start(now);
+            osc.stop(now + dur + 0.02);
+            if (panner) {
+                const p = panner;
+                setTimeout(() => { try { p.disconnect(); } catch(e) {} }, (dur + 0.2) * 1000);
+            }
+
+            timeout = setTimeout(drop, (1000 / dropsPerSec) * (0.3 + Math.random() * 1.4));
+        }
+
+        return {
+            start: () => { running = true; drop(); },
+            stop: () => {
+                running = false;
+                if (timeout) clearTimeout(timeout);
+            }
+        };
+    }
+
     // ============================================
     // AM SYNTHESIS (Cicadas, Insects)
     // ============================================
@@ -927,8 +1033,9 @@ const Synthesis = (function() {
 
     /**
      * Create wood/material creak sound
+     * @param {number|null} pan - fixed stereo position, or null for center
      */
-    function createCreak(ctx, destination, gain = 0.1) {
+    function createCreak(ctx, destination, gain = 0.1, pan = null) {
         const duration = 0.1 + Math.random() * 0.15;
         const freq = 150 + Math.random() * 200;
 
@@ -953,7 +1060,17 @@ const Synthesis = (function() {
 
         osc.connect(filter);
         filter.connect(creakGain);
-        creakGain.connect(destination);
+
+        let out = destination;
+        if (pan !== null && ctx.createStereoPanner) {
+            const panner = ctx.createStereoPanner();
+            panner.pan.value = pan;
+            panner.connect(destination);
+            creakGain.connect(panner);
+            setTimeout(() => { try { panner.disconnect(); } catch(e) {} }, (duration + 0.3) * 1000);
+        } else {
+            creakGain.connect(out);
+        }
 
         osc.start(now);
         osc.stop(now + duration + 0.05);
@@ -963,10 +1080,13 @@ const Synthesis = (function() {
 
     /**
      * Schedule creaks at random intervals
+     * @param {number} panSpread - each creak comes from a different
+     *   random spot within ±panSpread (the house settles all around you)
      */
-    function scheduleCreaks(ctx, destination, minInterval, maxInterval, gain = 0.1) {
+    function scheduleCreaks(ctx, destination, minInterval, maxInterval, gain = 0.1, panSpread = 0) {
         return createScheduler(minInterval, maxInterval, () => {
-            createCreak(ctx, destination, gain);
+            const pan = panSpread > 0 ? (Math.random() * 2 - 1) * panSpread : null;
+            createCreak(ctx, destination, gain, pan);
         });
     }
 
@@ -1032,6 +1152,8 @@ const Synthesis = (function() {
         createFilteredNoise,
         createNoiseBurst,
         createClick,
+        createThunder,
+        createRainPatter,
         scheduleDrips,
         scheduleBursts,
         createAMSynth,
