@@ -878,12 +878,18 @@ const Synthesis = (function() {
     }
 
     /**
-     * Drip acoustic profiles per surface type
+     * Drip acoustic profiles per surface type. Three zones drip by
+     * design (water is the piece's through-line), so each voice
+     * must be unmistakable: separated registers, distinct pitch
+     * drops, distinct resonance.
+     * - room  (storm leak):    low dull plip, deep pitch drop
+     * - metal (flood bucket):  bright ringing, mid register
+     * - tile  (drought tap):   high dry porcelain tick, barely drops
      */
     const DRIP_PROFILES = {
-        metal: { reverbTime: 0.3, wet: 0.4, freqBase: 1200, freqRange: 400, duration: 0.08, Q: 15 },
-        tile:  { reverbTime: 0.5, wet: 0.2, freqBase: 800,  freqRange: 300, duration: 0.05, Q: 8 },
-        room:  { reverbTime: 0.2, wet: 0.2, freqBase: 800,  freqRange: 300, duration: 0.05, Q: 8 }
+        metal: { reverbTime: 0.3, wet: 0.4,  freqBase: 1100, freqRange: 400, duration: 0.08,  Q: 15, drop: 0.7 },
+        tile:  { reverbTime: 0.45, wet: 0.25, freqBase: 1700, freqRange: 500, duration: 0.035, Q: 10, drop: 0.85 },
+        room:  { reverbTime: 0.2, wet: 0.15, freqBase: 480,  freqRange: 200, duration: 0.06,  Q: 5,  drop: 0.6 }
     };
 
     // Impulse responses are expensive to generate - cache one per drip type
@@ -912,9 +918,9 @@ const Synthesis = (function() {
         const filter = ctx.createBiquadFilter();
 
         osc.type = 'sine';
-        // Pitch drops slightly (water drop characteristic)
+        // Pitch drops per surface (deep bloop vs dry tick)
         osc.frequency.setValueAtTime(freq, ctx.currentTime);
-        osc.frequency.exponentialRampToValueAtTime(freq * 0.7, ctx.currentTime + duration);
+        osc.frequency.exponentialRampToValueAtTime(freq * (profile.drop || 0.7), ctx.currentTime + duration);
 
         filter.type = 'bandpass';
         filter.frequency.value = freq;
