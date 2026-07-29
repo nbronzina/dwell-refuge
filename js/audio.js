@@ -21,6 +21,27 @@ const RefugeAudio = (function() {
     let filterNode = null;
     let compressor = null;
     let subFilter = null;
+    let profileGain = null;
+
+    // Playback profile: the piece's quiet details vanish on laptop
+    // speakers - 'speakers' lifts the floor and drops the useless sub
+    let playbackProfile = 'headphones';
+
+    // Time of day: the house has a daily rhythm - nights are darker
+    let dayness = 1;
+    let lastDaynessCheck = 0;
+
+    function computeDayness() {
+        const d = new Date();
+        const h = d.getHours() + d.getMinutes() / 60;
+        // 0 in deep night (~3am), 1 at mid-afternoon
+        return 0.5 - 0.5 * Math.cos(((h - 3) / 24) * 2 * Math.PI);
+    }
+
+    // Recording (canonical-walk export)
+    let recDest = null;
+    let recorder = null;
+    let recChunks = [];
 
     // Active zone sources
     let activeSources = [];
@@ -165,10 +186,17 @@ const RefugeAudio = (function() {
         subFilter.Q.value = 0.7;
         subFilter.connect(compressor);
 
+        // Playback-profile stage (headphones vs laptop speakers)
+        profileGain = audioContext.createGain();
+        profileGain.gain.value = 1;
+        profileGain.connect(subFilter);
+
         // Master gain for fade in/out
         masterGain = audioContext.createGain();
         masterGain.gain.value = 0;
-        masterGain.connect(subFilter);
+        masterGain.connect(profileGain);
+
+        applyPlaybackProfile();
 
         // Global filter (responds to Y position)
         // Range: 400Hz (muffled) to 12000Hz (bright)
@@ -268,6 +296,21 @@ const RefugeAudio = (function() {
 
     function smoothParam(param, value, timeConstant) {
         param.setTargetAtTime(value, audioContext.currentTime, timeConstant);
+    }
+
+    // ============================================
+    // PLAYBACK PROFILE
+    // ============================================
+
+    function applyPlaybackProfile() {
+        if (!audioContext) return;
+        const sp = playbackProfile === 'speakers';
+        // Speakers: nothing below ~100Hz exists anyway, so drop it
+        // before the compressor; lift the whole floor and lower the
+        // threshold so the peaks stay protected
+        smoothParam(subFilter.frequency, sp ? 110 : 24, 0.2);
+        smoothParam(compressor.threshold, sp ? -12 : -6, 0.2);
+        smoothParam(profileGain.gain, sp ? 1.5 : 1, 0.2);
     }
 
     // ============================================
@@ -416,6 +459,7 @@ const RefugeAudio = (function() {
                 masterGain = null;
                 compressor = null;
                 subFilter = null;
+                profileGain = null;
                 filterNode = null;
                 reverbNode = null;
                 reverbGain = null;
@@ -623,13 +667,21 @@ const RefugeAudio = (function() {
         const targetStillness = Math.max(0, Math.min(1, 1 - currentVelocity / STILLNESS_VELOCITY));
         stillness += (targetStillness - stillness) * STILLNESS_SMOOTH;
 
+        // Time of day: check once a minute; night caps the ceiling
+        if (now - lastDaynessCheck > 60) {
+            lastDaynessCheck = now;
+            dayness = computeDayness();
+        }
+
         // Y position affects depth:
         // Y = 0 (top) = bright, dry, present
         // Y = 1 (bottom) = muffled, wet, distant
         const depth = position.y;
 
-        // Filter: 400Hz - 12000Hz sweep, opening further with stillness
-        const filterFreq = Math.min(12000,
+        // Filter: 400Hz upward sweep, opening with stillness,
+        // capped lower at night - the house darkens with the sky
+        const ceiling = 7000 + dayness * 5000;
+        const filterFreq = Math.min(ceiling,
             400 + (1 - depth) * 11600 + stillness * STILLNESS_FILTER_BONUS);
         smoothParam(filterNode.frequency, filterFreq, SMOOTH.filter);
 
@@ -774,6 +826,48 @@ const RefugeAudio = (function() {
             currentVelocity = v;
         },
 
+        // 'headphones' | 'speakers' - callable before init; applied
+        // when the context exists
+        setPlaybackProfile: function(p) {
+            playbackProfile = p === 'speakers' ? 'speakers' : 'headphones';
+            applyPlaybackProfile();
+        },
+
+        getPlaybackProfile: function() {
+            return playbackProfile;
+        },
+
+        // Canonical-walk export: tap the mix after the compressor
+        startRecording: function() {
+            if (!audioContext || recorder) return false;
+            if (typeof MediaRecorder === 'undefined' ||
+                !audioContext.createMediaStreamDestination) return false;
+            recDest = audioContext.createMediaStreamDestination();
+            compressor.connect(recDest);
+            recChunks = [];
+            recorder = new MediaRecorder(recDest.stream);
+            recorder.ondataavailable = e => {
+                if (e.data && e.data.size) recChunks.push(e.data);
+            };
+            recorder.start();
+            return true;
+        },
+
+        stopRecording: function() {
+            return new Promise(resolve => {
+                if (!recorder) return resolve(null);
+                recorder.onstop = () => {
+                    const blob = new Blob(recChunks, { type: recorder.mimeType || 'audio/webm' });
+                    try { compressor.disconnect(recDest); } catch(e) {}
+                    recorder = null;
+                    recDest = null;
+                    recChunks = [];
+                    resolve(blob);
+                };
+                recorder.stop();
+            });
+        },
+
         isRunning: function() {
             return isRunning && !isPaused;
         },
@@ -793,6 +887,8 @@ const RefugeAudio = (function() {
                 paused: isPaused,
                 contextState: audioContext ? audioContext.state : 'none',
                 spatial: useHRTF ? 'hrtf' : 'stereo',
+                profile: playbackProfile,
+                dayness: dayness,
                 dominant: lastDominantZone,
                 stillness: stillness,
                 velocity: currentVelocity,

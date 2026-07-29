@@ -228,7 +228,8 @@ async function main() {
         // Maintenance & intruder one-shots schedule without throwing
         ['createSigh', 'createTapeSmooth', 'createPageTurn', 'createBucketEmpty',
          'createPour', 'createKettle', 'createSiren', 'createGenerator',
-         'createAlertBuzz', 'createHelicopter'].forEach(name => {
+         'createAlertBuzz', 'createHelicopter',
+         'createIceCreamVan', 'createSprinklers'].forEach(name => {
             assert(typeof Synthesis[name] === 'function', name + ' exists');
             Synthesis[name](octx, dest, 0.03);  // must not throw
         });
@@ -297,6 +298,13 @@ async function main() {
         zone.cleanup();
     });
     assert(liveSources.size === 0, 'no live sources after all zone cleanups');
+
+    console.log('playback profile and recording');
+    RefugeAudio.setPlaybackProfile('speakers');  // callable before init
+    assert(RefugeAudio.getPlaybackProfile() === 'speakers', 'profile stored pre-init');
+    RefugeAudio.setPlaybackProfile('headphones');
+    assert(RefugeAudio.startRecording() === false,
+        'recording degrades gracefully without MediaRecorder');
 
     console.log('engine lifecycle');
     RefugeAudio.start();

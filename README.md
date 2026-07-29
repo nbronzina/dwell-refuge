@@ -72,7 +72,11 @@ Audio starts on the enter button — browsers require a user gesture to start an
 node test/smoke.js
 ```
 
-**Tuning overlay** — append `?debug` to the URL for live engine state: dominant zone, per-zone gain and evolution factor, velocity, stillness, spatialization mode, context state.
+**Tuning overlay** — append `?debug` to the URL for live engine state: dominant zone, per-zone gain and evolution factor, velocity, stillness, spatialization mode, playback profile, time-of-day, context state.
+
+**Canonical walk** — append `?walk` to run an automated ~10-minute traversal of the whole house (refuge → storm → corridor → heat → drought → corridor → flood → home), recorded from the master bus and downloaded as `dwell-refuge-walk.webm`. It's the album export and a composition-review tool: if the walk doesn't hold up linearly, the space isn't composed yet.
+
+**Listening mode** — the entry screen's "headphones/speakers" toggle re-weights the mix for laptop speakers (drops the useless sub, lifts the floor, protects the peaks). Persisted in localStorage.
 
 ## Browser notes
 

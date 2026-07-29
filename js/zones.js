@@ -363,6 +363,15 @@ const Zones = (function() {
         intruder.start();
         cleanupFns.push(() => intruder.stop());
 
+        // Memory: an ice-cream van, streets away - the ordinary
+        // past haunting the ordinary future. Extremely rare.
+        const memory = Synthesis.createScheduler(420, 720, () => {
+            if (!audible() || Math.random() > 0.5) return;
+            Synthesis.createIceCreamVan(ctx, windowBus, 0.02);
+        });
+        memory.start();
+        cleanupFns.push(() => memory.stop());
+
         // Stress: the machines lose the fight - the AC compressor
         // wobbles and sags, the fridge short-cycles under brownout
         function setStress(s) {
@@ -795,6 +804,15 @@ const Zones = (function() {
         });
         intruder.start();
         cleanupFns.push(() => intruder.stop());
+
+        // Memory: lawn sprinklers ghosting past the window - water
+        // that used to be spent on grass. Extremely rare.
+        const memory = Synthesis.createScheduler(420, 720, () => {
+            if (!audible() || Math.random() > 0.5) return;
+            Synthesis.createSprinklers(ctx, masterGain, 0.02);
+        });
+        memory.start();
+        cleanupFns.push(() => memory.stop());
 
         // Stress: everything dries further - the wood complains
         // more, the faucet gives LESS (scarcity deepens)

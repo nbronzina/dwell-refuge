@@ -1437,6 +1437,93 @@ const Synthesis = (function() {
     }
 
     // ============================================
+    // MEMORY SOUNDS
+    // At most one per zone, already nostalgic: the ordinary past
+    // haunting the ordinary future. This is where the grief lives.
+    // ============================================
+
+    // An ice-cream van, streets away, in the heat - the jingle
+    // slightly flat, worn like the memory itself
+    function createIceCreamVan(ctx, dest, gain = 0.02) {
+        const now = ctx.currentTime;
+        const jingle = [400, 500, 600, 500, 400, 300, 400];  // authored, on the heat chord
+        const wall = ctx.createBiquadFilter();
+        wall.type = 'lowpass';
+        wall.frequency.value = 1500;
+        const g = ctx.createGain();
+        const dur = jingle.length * 0.45 + 4;
+        g.gain.setValueAtTime(0, now);
+        g.gain.linearRampToValueAtTime(gain, now + dur * 0.35);   // the van approaches
+        g.gain.linearRampToValueAtTime(0.0001, now + dur);        // and passes
+        wall.connect(g);
+        g.connect(dest);
+
+        const vib = ctx.createOscillator();
+        const vibG = ctx.createGain();
+        vib.type = 'sine';
+        vib.frequency.value = 5.2;
+        vibG.gain.value = 4;
+        vib.connect(vibG);
+        vib.start(now);
+        vib.stop(now + dur);
+
+        let lastOsc = null;
+        jingle.forEach((f, i) => {
+            const t = now + 0.8 + i * 0.45;
+            const o = ctx.createOscillator();
+            const og = ctx.createGain();
+            o.type = 'triangle';
+            o.frequency.value = f * 0.985;  // a touch flat
+            vibG.connect(o.frequency);
+            og.gain.setValueAtTime(0, t);
+            og.gain.linearRampToValueAtTime(0.8, t + 0.03);
+            og.gain.exponentialRampToValueAtTime(0.0001, t + 0.42);
+            o.connect(og);
+            og.connect(wall);
+            o.start(t);
+            o.stop(t + 0.5);
+            lastOsc = o;
+        });
+        if (lastOsc) {
+            lastOsc.onended = () => {
+                try { wall.disconnect(); g.disconnect(); vibG.disconnect(); } catch(e) {}
+            };
+        }
+    }
+
+    // Lawn sprinklers ghosting the drought: the tick-tick-tick of
+    // water that used to be spent on grass, sweeping past
+    function createSprinklers(ctx, dest, gain = 0.02) {
+        const now = ctx.currentTime;
+        const dur = 9;
+
+        let out = dest;
+        let panner = null;
+        if (ctx.createStereoPanner) {
+            panner = ctx.createStereoPanner();
+            panner.pan.setValueAtTime(-0.6, now);
+            panner.pan.linearRampToValueAtTime(0.6, now + dur);  // sweeping the lawn
+            panner.connect(dest);
+            out = panner;
+            setTimeout(() => { try { panner.disconnect(); } catch(e) {} }, (dur + 1) * 1000);
+        }
+
+        // the fine spray bed
+        noiseShot(ctx, out, { type: 'bandpass', freq: 3400, q: 1.5, peak: gain * 0.5, attack: dur * 0.3, decay: dur * 0.7 });
+
+        // the ratchet ticks
+        let t = now + 0.3;
+        while (t < now + dur - 0.4) {
+            noiseShot(ctx, out, {
+                type: 'highpass', freq: 5000,
+                peak: gain * (0.6 + Math.random() * 0.4),
+                attack: 0.003, decay: 0.035, when: t
+            });
+            t += 0.21 + Math.random() * 0.03;
+        }
+    }
+
+    // ============================================
     // SCORE MOMENT
     // A rare, pre-composed figure on the zone's chord: slow
     // triangle tones with long envelopes. Exists only for the
@@ -1623,6 +1710,9 @@ const Synthesis = (function() {
         createGenerator,
         createAlertBuzz,
         createHelicopter,
+        // Memory sounds
+        createIceCreamVan,
+        createSprinklers,
         createPinkNoiseBuffer,
         createWhiteNoiseBuffer,
         createFilteredNoise,

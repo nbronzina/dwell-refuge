@@ -26,6 +26,9 @@
     let isExiting = false;
     let stillTime = 0;
 
+    // ?walk runs the canonical traversal and exports the recording
+    const walkMode = window.location.search.indexOf('walk') !== -1;
+
     // Initialize
     function init() {
         // Web Audio unavailable: say so instead of failing silently
@@ -91,10 +94,107 @@
         // Zone label on stillness
         setInterval(updateZoneLabel, 500);
 
+        // Playback profile toggle: laptop speakers lose the quiet
+        // details - the engine compensates when told
+        const profileToggle = document.getElementById('profileToggle');
+        if (profileToggle) {
+            const stored = localStorage.getItem('refuge-profile');
+            if (stored === 'speakers') {
+                RefugeAudio.setPlaybackProfile('speakers');
+                profileToggle.textContent = 'speakers';
+            }
+            const flip = function() {
+                const next = RefugeAudio.getPlaybackProfile() === 'speakers'
+                    ? 'headphones' : 'speakers';
+                RefugeAudio.setPlaybackProfile(next);
+                localStorage.setItem('refuge-profile', next);
+                profileToggle.textContent = next;
+            };
+            profileToggle.addEventListener('click', flip);
+            profileToggle.addEventListener('keydown', function(e) {
+                if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    flip();
+                }
+            });
+        }
+
         // Tuning overlay: append ?debug to the URL
         if (window.location.search.indexOf('debug') !== -1) {
             initDebugOverlay();
         }
+    }
+
+    // ============================================
+    // CANONICAL WALK (?walk)
+    // An automated traversal of the whole house, recorded from the
+    // master bus and downloaded - the album export, and a review
+    // tool: if the walk doesn't hold up linearly, the space isn't
+    // composed yet.
+    // ============================================
+
+    function runCanonicalWalk() {
+        if (!RefugeAudio.startRecording()) {
+            console.log('dwell:refuge - recording unavailable in this browser');
+            return;
+        }
+        console.log('dwell:refuge - canonical walk recording (~10 min)');
+
+        const path = [
+            { x: 0.5, y: 0.5, dwell: 60 },    // the refuge, first
+            { x: 0.16, y: 0.16, dwell: 75 },  // storm
+            { x: 0.5, y: 0.16, dwell: 25 },   // the north corridor
+            { x: 0.84, y: 0.16, dwell: 75 },  // heat
+            { x: 0.84, y: 0.84, dwell: 75 },  // drought
+            { x: 0.5, y: 0.84, dwell: 25 },   // the south corridor
+            { x: 0.16, y: 0.84, dwell: 75 },  // flood
+            { x: 0.5, y: 0.5, dwell: 90 }     // home again
+        ];
+        const TRAVEL = 12;
+        let seg = 0;
+        let phase = 'dwell';
+        let t0 = performance.now();
+
+        RefugeAudio.setPosition(path[0].x, path[0].y);
+
+        const iv = setInterval(function() {
+            const el = (performance.now() - t0) / 1000;
+            const cur = path[seg];
+
+            if (phase === 'dwell') {
+                if (el >= cur.dwell) {
+                    if (seg === path.length - 1) {
+                        clearInterval(iv);
+                        RefugeAudio.stopRecording().then(saveWalk);
+                        return;
+                    }
+                    phase = 'travel';
+                    t0 = performance.now();
+                }
+            } else {
+                const nxt = path[seg + 1];
+                const k = Math.min(1, el / TRAVEL);
+                const e = k * k * (3 - 2 * k);
+                RefugeAudio.setPosition(
+                    cur.x + (nxt.x - cur.x) * e,
+                    cur.y + (nxt.y - cur.y) * e
+                );
+                if (k >= 1) {
+                    seg++;
+                    phase = 'dwell';
+                    t0 = performance.now();
+                }
+            }
+        }, 200);
+    }
+
+    function saveWalk(blob) {
+        if (!blob) return;
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = 'dwell-refuge-walk.webm';
+        a.click();
+        console.log('dwell:refuge - walk exported');
     }
 
     // ============================================
@@ -114,6 +214,7 @@
                 'ctx: ' + s.contextState + (s.paused ? ' (paused)' : ''),
                 'spatial: ' + s.spatial,
                 'samples: ' + (typeof Samples !== 'undefined' ? Samples.status() : 'n/a'),
+                'profile: ' + s.profile + '  day: ' + (s.dayness !== undefined ? s.dayness.toFixed(2) : '-'),
                 'pos: ' + s.position.x.toFixed(2) + ', ' + s.position.y.toFixed(2),
                 'dominant: ' + (s.dominant || '-'),
                 'velocity: ' + s.velocity.toFixed(3),
@@ -199,11 +300,13 @@
             entryScreen.style.display = 'none';
             soundSpace.classList.remove('hidden');
 
-            // Activate input
-            RefugeInput.activate();
-
-            // Show hint
-            showHint();
+            if (walkMode) {
+                // The walk drives the position; input stays off
+                runCanonicalWalk();
+            } else {
+                RefugeInput.activate();
+                showHint();
+            }
         }, 1000);
     }
 
