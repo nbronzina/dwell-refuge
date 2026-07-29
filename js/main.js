@@ -10,7 +10,6 @@
     const entryScreen = document.getElementById('entry');
     const enterBtn = document.getElementById('enterBtn');
     const soundSpace = document.getElementById('space');
-    const hint = document.getElementById('hint');
     const zoneLabel = document.getElementById('zoneLabel');
     const backLink = document.querySelector('.back-link');
 
@@ -28,12 +27,6 @@
 
     // ?walk runs the canonical traversal and exports the recording
     const walkMode = window.location.search.indexOf('walk') !== -1;
-
-    // Full audio: the visuals are onboarding only. Long enough to
-    // tour all five rooms lit and read each name once - then the
-    // lights go down and the piece is sound alone.
-    const LIGHTS_DOWN_MS = 240000;
-    let lightsDownTimer = null;
 
     // Initialize
     function init() {
@@ -94,10 +87,13 @@
             }
         });
 
-        // Visual pulses synced to zone sound events
-        document.addEventListener('refuge:event', handleZoneEvent);
+        // Full audio from the first second: no tints, no glow, no
+        // flashes, no labels - the sound is the entire interface.
+        // The zone label below keeps updating unseen for screen
+        // readers (aria-live), for whom the piece was always sound.
+        document.body.classList.add('audio-only');
 
-        // Zone label on stillness
+        // Zone label on stillness (screen readers only)
         setInterval(updateZoneLabel, 500);
 
         // Playback profile toggle: laptop speakers lose the quiet
@@ -243,44 +239,7 @@
     // ============================================
 
     // ============================================
-    // LIGHTS DOWN (full audio)
-    // ============================================
-
-    function lightsDown() {
-        document.body.classList.add('audio-only');
-        RefugeInput.setVisualFeedback(false);
-        // Release the inline tint so the CSS base brown takes over
-        soundSpace.style.backgroundColor = '';
-    }
-
-    function lightsUp() {
-        document.body.classList.remove('audio-only');
-        RefugeInput.setVisualFeedback(true);
-    }
-
-    function handleZoneEvent(e) {
-        if (!hasEntered || reducedMotion) return;
-        if (document.body.classList.contains('audio-only')) return;
-
-        const type = e.detail && e.detail.type;
-        if (type === 'thunder') {
-            pulse('flash', 600);
-        } else if (type === 'glass') {
-            pulse('shake', 500);
-        }
-    }
-
-    function pulse(className, duration) {
-        soundSpace.classList.remove(className);
-        void soundSpace.offsetWidth;  // restart the CSS animation
-        soundSpace.classList.add(className);
-        setTimeout(function() {
-            soundSpace.classList.remove(className);
-        }, duration);
-    }
-
-    // ============================================
-    // ZONE LABEL (dwelling reveals where you are)
+    // ZONE LABEL (screen readers only - aria-live)
     // ============================================
 
     function updateZoneLabel() {
@@ -328,23 +287,15 @@
                 runCanonicalWalk();
             } else {
                 RefugeInput.activate();
-                showHint();
+                // activate() resets visual feedback - keep it off
+                RefugeInput.setVisualFeedback(false);
             }
-
-            // After onboarding, the house turns its lights off
-            lightsDownTimer = setTimeout(lightsDown, LIGHTS_DOWN_MS);
         }, 1000);
     }
 
     function leave() {
         if (!hasEntered || isExiting) return;
         isExiting = true;
-
-        if (lightsDownTimer) {
-            clearTimeout(lightsDownTimer);
-            lightsDownTimer = null;
-        }
-        lightsUp();
 
         RefugeInput.deactivate();
 
@@ -358,31 +309,6 @@
             hasEntered = false;
             isExiting = false;
         });
-    }
-
-    function showHint() {
-        // First lesson: the space responds to movement
-        setTimeout(function() {
-            if (!hasEntered) return;
-            hint.textContent = 'move';
-            hint.classList.add('visible');
-
-            setTimeout(function() {
-                hint.classList.remove('visible');
-            }, 4000);
-        }, 2000);
-
-        // Second lesson, once the space has been explored:
-        // stillness reveals detail
-        setTimeout(function() {
-            if (!hasEntered) return;
-            hint.textContent = 'or be still';
-            hint.classList.add('visible');
-
-            setTimeout(function() {
-                hint.classList.remove('visible');
-            }, 4000);
-        }, 30000);
     }
 
     // Start when DOM ready

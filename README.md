@@ -35,7 +35,7 @@ Each zone is a room, not a point — spatially and acoustically. Each hostile cl
 - **Be still** and the space rewards you: the filter opens and detail emerges. Hold still long enough and a room may offer its score moment — a rare, quiet figure on its chord that exists only for the still listener. The house is also inhabited: someone smooths tape onto the storm window, empties the flood bucket, sighs in the heat, pours water from a stored jug; and rarely the outside intrudes — a distant siren, a neighbor's generator, an emergency alert buzzing in another room, a helicopter far off.
 - **Walk away** and after 90 seconds the weather comes to you — your position drifts slowly toward the nearest hostile zone.
 - **Esc** returns to the entry screen. The back arrow fades everything out before leaving.
-- **The piece is full audio.** The visual layer (zone tints, cursor glow, lightning flashes) is onboarding only: a few minutes after entering — time enough to tour every room lit — the lights go down, the screen settles into plain brown and only the sound remains. The zone label keeps updating for screen readers throughout.
+- **The piece is full audio, from the first second.** No tints, no glow, no flashes, no labels — the screen holds a plain warm brown and the sound is the entire interface. The one exception is deliberate: an unseen aria-live region keeps telling screen-reader users which room they are in.
 
 Headphones recommended.
 
