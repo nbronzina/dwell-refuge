@@ -7,6 +7,11 @@
 const Zones = (function() {
     'use strict';
 
+    // Notify the UI layer about audible events (for visual pulses)
+    function dispatchZoneEvent(type) {
+        document.dispatchEvent(new CustomEvent('refuge:event', { detail: { type: type } }));
+    }
+
     // ============================================
     // STORM ZONE [0.1, 0.1]
     // Being inside during the storm
@@ -50,64 +55,36 @@ const Zones = (function() {
         cleanupFns.push(() => leak.stop());
 
         // 3. Blind rattling - 8-20 seconds (wind gusts) (10%)
-        const blindScheduler = {
-            timeout: null,
-            running: false,
-            start: function() {
-                this.running = true;
-                this.schedule();
-            },
-            stop: function() {
-                this.running = false;
-                if (this.timeout) clearTimeout(this.timeout);
-            },
-            schedule: function() {
-                if (!this.running) return;
-                const interval = (8 + Math.random() * 12) * 1000;
-                this.timeout = setTimeout(() => {
-                    if (!this.running) return;
-                    Synthesis.createNoiseBurst(ctx, masterGain, 180 + Math.random() * 80, 0.06, 10);
-                    this.schedule();
-                }, interval);
-            }
-        };
+        const blindScheduler = Synthesis.createScheduler(8, 20, () => {
+            Synthesis.createNoiseBurst(ctx, masterGain, 180 + Math.random() * 80, 0.06, 10);
+        });
         blindScheduler.start();
         cleanupFns.push(() => blindScheduler.stop());
 
         // 4. Thunder + glass vibration - 15-45 seconds (5%)
-        const thunderScheduler = {
-            timeout: null,
-            running: false,
-            start: function() {
-                this.running = true;
-                this.schedule();
-            },
-            stop: function() {
-                this.running = false;
-                if (this.timeout) clearTimeout(this.timeout);
-            },
-            schedule: function() {
-                if (!this.running) return;
-                const interval = (15 + Math.random() * 30) * 1000;
-                this.timeout = setTimeout(() => {
-                    if (!this.running) return;
-                    // Distant thunder
-                    Synthesis.createNoiseBurst(ctx, masterGain, 60 + Math.random() * 40, 2, 0.6);
-                    // Glass vibration after thunder
-                    setTimeout(() => {
-                        if (this.running) {
-                            Synthesis.createGlassVibration(ctx, masterGain, 0.04, 1.2 + Math.random() * 0.8);
-                        }
-                    }, 150 + Math.random() * 250);
-                    this.schedule();
-                }, interval);
-            }
-        };
+        let disposed = false;
+        cleanupFns.push(() => { disposed = true; });
+
+        function thunderEvent() {
+            if (disposed) return;
+            // Distant thunder
+            Synthesis.createNoiseBurst(ctx, masterGain, 60 + Math.random() * 40, 2, 0.6);
+            dispatchZoneEvent('thunder');
+            // Glass vibration after thunder
+            setTimeout(() => {
+                if (disposed) return;
+                Synthesis.createGlassVibration(ctx, masterGain, 0.04, 1.2 + Math.random() * 0.8);
+                dispatchZoneEvent('glass');
+            }, 150 + Math.random() * 250);
+        }
+
+        const thunderScheduler = Synthesis.createScheduler(15, 45, thunderEvent);
         thunderScheduler.start();
         cleanupFns.push(() => thunderScheduler.stop());
 
         return {
             gainNode: masterGain,
+            trigger: thunderEvent,
             cleanup: () => cleanupFns.forEach(fn => fn())
         };
     }
@@ -171,8 +148,18 @@ const Zones = (function() {
         mains.start();
         cleanupFns.push(() => { try { mains.stop(); } catch(e) {} });
 
+        // Welcome trigger: brief cicada swell (heat pressing in from outside)
+        function cicadaSwell() {
+            const g = cicadas.gain.gain;
+            const now = ctx.currentTime;
+            g.cancelScheduledValues(now);
+            g.setTargetAtTime(0.12, now, 0.8);
+            g.setTargetAtTime(0.05, now + 3, 1.5);
+        }
+
         return {
             gainNode: masterGain,
+            trigger: cicadaSwell,
             cleanup: () => cleanupFns.forEach(fn => fn())
         };
     }
@@ -215,42 +202,27 @@ const Zones = (function() {
         cleanupFns.push(() => { try { electricalPresence.stop(); } catch(e) {} });
 
         // 4. Very rare settling sounds - building breathing (45-120s)
-        const ambientScheduler = {
-            timeout: null,
-            running: false,
-            start: function() {
-                this.running = true;
-                this.schedule();
-            },
-            stop: function() {
-                this.running = false;
-                if (this.timeout) clearTimeout(this.timeout);
-            },
-            schedule: function() {
-                if (!this.running) return;
-                const interval = (45 + Math.random() * 75) * 1000;
-                this.timeout = setTimeout(() => {
-                    if (!this.running) return;
-                    const osc = ctx.createOscillator();
-                    const g = ctx.createGain();
-                    osc.type = 'sine';
-                    osc.frequency.value = 70 + Math.random() * 30;
-                    g.gain.setValueAtTime(0, ctx.currentTime);
-                    g.gain.linearRampToValueAtTime(0.008, ctx.currentTime + 0.05);
-                    g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.15);
-                    osc.connect(g);
-                    g.connect(masterGain);
-                    osc.start();
-                    osc.stop(ctx.currentTime + 0.2);
-                    this.schedule();
-                }, interval);
-            }
-        };
+        function settlingTick() {
+            const osc = ctx.createOscillator();
+            const g = ctx.createGain();
+            osc.type = 'sine';
+            osc.frequency.value = 70 + Math.random() * 30;
+            g.gain.setValueAtTime(0, ctx.currentTime);
+            g.gain.linearRampToValueAtTime(0.008, ctx.currentTime + 0.05);
+            g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.15);
+            osc.connect(g);
+            g.connect(masterGain);
+            osc.start();
+            osc.stop(ctx.currentTime + 0.2);
+        }
+
+        const ambientScheduler = Synthesis.createScheduler(45, 120, settlingTick);
         ambientScheduler.start();
         cleanupFns.push(() => ambientScheduler.stop());
 
         return {
             gainNode: masterGain,
+            trigger: settlingTick,
             cleanup: () => cleanupFns.forEach(fn => fn())
         };
     }
@@ -312,72 +284,38 @@ const Zones = (function() {
         cleanupFns.push(() => { try { pumpVibration.stop(); } catch(e) {} });
 
         // 4. Floating objects - 15-45 seconds (7%)
-        const floatingScheduler = {
-            timeout: null,
-            running: false,
-            start: function() {
-                this.running = true;
-                this.schedule();
-            },
-            stop: function() {
-                this.running = false;
-                if (this.timeout) clearTimeout(this.timeout);
-            },
-            schedule: function() {
-                if (!this.running) return;
-                const interval = (15 + Math.random() * 30) * 1000;
-                this.timeout = setTimeout(() => {
-                    if (!this.running) return;
-                    Synthesis.createNoiseBurst(ctx, masterGain, 100 + Math.random() * 60, 0.12, 7);
-                    this.schedule();
-                }, interval);
-            }
-        };
+        const floatingScheduler = Synthesis.createScheduler(15, 45, () => {
+            Synthesis.createNoiseBurst(ctx, masterGain, 100 + Math.random() * 60, 0.12, 7);
+        });
         floatingScheduler.start();
         cleanupFns.push(() => floatingScheduler.stop());
 
         // 5. Splashes - 5-12 seconds (3%)
-        const splashScheduler = {
-            timeout: null,
-            running: false,
-            start: function() {
-                this.running = true;
-                this.schedule();
-            },
-            stop: function() {
-                this.running = false;
-                if (this.timeout) clearTimeout(this.timeout);
-            },
-            schedule: function() {
-                if (!this.running) return;
-                const interval = (5 + Math.random() * 7) * 1000;
-                this.timeout = setTimeout(() => {
-                    if (!this.running) return;
-                    const splashBuf = Synthesis.createWhiteNoiseBuffer(ctx, 0.08);
-                    const splash = ctx.createBufferSource();
-                    splash.buffer = splashBuf;
-                    const splashFilter = ctx.createBiquadFilter();
-                    splashFilter.type = 'bandpass';
-                    splashFilter.frequency.value = 400 + Math.random() * 200;
-                    splashFilter.Q.value = 1;
-                    const splashGain = ctx.createGain();
-                    const now = ctx.currentTime;
-                    splashGain.gain.setValueAtTime(0, now);
-                    splashGain.gain.linearRampToValueAtTime(0.06, now + 0.008);
-                    splashGain.gain.exponentialRampToValueAtTime(0.001, now + 0.08);
-                    splash.connect(splashFilter);
-                    splashFilter.connect(splashGain);
-                    splashGain.connect(masterGain);
-                    splash.start();
-                    this.schedule();
-                }, interval);
-            }
-        };
+        const splashScheduler = Synthesis.createScheduler(5, 12, () => {
+            const splashBuf = Synthesis.createWhiteNoiseBuffer(ctx, 0.08);
+            const splash = ctx.createBufferSource();
+            splash.buffer = splashBuf;
+            const splashFilter = ctx.createBiquadFilter();
+            splashFilter.type = 'bandpass';
+            splashFilter.frequency.value = 400 + Math.random() * 200;
+            splashFilter.Q.value = 1;
+            const splashGain = ctx.createGain();
+            const now = ctx.currentTime;
+            splashGain.gain.setValueAtTime(0, now);
+            splashGain.gain.linearRampToValueAtTime(0.06, now + 0.008);
+            splashGain.gain.exponentialRampToValueAtTime(0.001, now + 0.08);
+            splash.connect(splashFilter);
+            splashFilter.connect(splashGain);
+            splashGain.connect(masterGain);
+            splash.start();
+        });
         splashScheduler.start();
         cleanupFns.push(() => splashScheduler.stop());
 
         return {
             gainNode: masterGain,
+            // Welcome trigger: a distinctive drip into the bucket
+            trigger: () => Synthesis.createDripWithReverb(ctx, masterGain, 'metal', 0.2),
             cleanup: () => cleanupFns.forEach(fn => fn())
         };
     }
@@ -443,6 +381,8 @@ const Zones = (function() {
 
         return {
             gainNode: masterGain,
+            // Welcome trigger: dry wood creak
+            trigger: () => Synthesis.createCreak(ctx, masterGain, 0.08),
             cleanup: () => cleanupFns.forEach(fn => fn())
         };
     }

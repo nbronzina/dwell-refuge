@@ -185,74 +185,56 @@ const Synthesis = (function() {
     // ============================================
 
     /**
-     * Schedule recurring drips/clicks at random intervals
-     * @param {AudioContext} ctx
-     * @param {AudioNode} destination
-     * @param {number} minInterval - minimum time between drips (seconds)
-     * @param {number} maxInterval - maximum time between drips (seconds)
-     * @param {number} freqMin - minimum frequency
-     * @param {number} freqMax - maximum frequency
-     * @param {number} gain - click gain
+     * Generic random-interval scheduler
+     * @param {number} minInterval - minimum time between events (seconds)
+     * @param {number} maxInterval - maximum time between events (seconds)
+     * @param {Function} fn - called on each event
      */
-    function scheduleDrips(ctx, destination, minInterval, maxInterval, freqMin = 800, freqMax = 1200, gain = 0.15) {
+    function createScheduler(minInterval, maxInterval, fn) {
         let timeoutId = null;
-        let isRunning = false;
+        let running = false;
 
         function scheduleNext() {
-            if (!isRunning) return;
-
+            if (!running) return;
             const interval = (minInterval + Math.random() * (maxInterval - minInterval)) * 1000;
-
             timeoutId = setTimeout(() => {
-                if (!isRunning) return;
-                const freq = freqMin + Math.random() * (freqMax - freqMin);
-                createClick(ctx, destination, freq, 0.03 + Math.random() * 0.02, gain);
+                if (!running) return;
+                fn();
                 scheduleNext();
             }, interval);
         }
 
         return {
             start: () => {
-                isRunning = true;
+                running = true;
                 scheduleNext();
             },
             stop: () => {
-                isRunning = false;
+                running = false;
                 if (timeoutId) clearTimeout(timeoutId);
-            }
+            },
+            isRunning: () => running
         };
+    }
+
+    /**
+     * Schedule recurring drips/clicks at random intervals
+     */
+    function scheduleDrips(ctx, destination, minInterval, maxInterval, freqMin = 800, freqMax = 1200, gain = 0.15) {
+        return createScheduler(minInterval, maxInterval, () => {
+            const freq = freqMin + Math.random() * (freqMax - freqMin);
+            createClick(ctx, destination, freq, 0.03 + Math.random() * 0.02, gain);
+        });
     }
 
     /**
      * Schedule bursts at random intervals (for thunder, cracks)
      */
     function scheduleBursts(ctx, destination, minInterval, maxInterval, freqMin, freqMax, duration, decay, gain = 0.4) {
-        let timeoutId = null;
-        let isRunning = false;
-
-        function scheduleNext() {
-            if (!isRunning) return;
-
-            const interval = (minInterval + Math.random() * (maxInterval - minInterval)) * 1000;
-
-            timeoutId = setTimeout(() => {
-                if (!isRunning) return;
-                const freq = freqMin + Math.random() * (freqMax - freqMin);
-                const burst = createNoiseBurst(ctx, destination, freq, duration, decay);
-                scheduleNext();
-            }, interval);
-        }
-
-        return {
-            start: () => {
-                isRunning = true;
-                scheduleNext();
-            },
-            stop: () => {
-                isRunning = false;
-                if (timeoutId) clearTimeout(timeoutId);
-            }
-        };
+        return createScheduler(minInterval, maxInterval, () => {
+            const freq = freqMin + Math.random() * (freqMax - freqMin);
+            createNoiseBurst(ctx, destination, freq, duration, decay);
+        });
     }
 
     // ============================================
@@ -704,83 +686,126 @@ const Synthesis = (function() {
     }
 
     /**
-     * Create drip with specific reverb character
-     * @param {string} type - 'metal' (bucket), 'tile' (bathroom), 'room' (general)
+     * Drip acoustic profiles per surface type
      */
-    function createDripWithReverb(ctx, destination, type = 'room', gain = 0.15) {
-        const freq = type === 'metal' ? 1200 + Math.random() * 400 : 800 + Math.random() * 300;
-        const duration = type === 'metal' ? 0.08 : 0.05;
+    const DRIP_PROFILES = {
+        metal: { reverbTime: 0.3, wet: 0.4, freqBase: 1200, freqRange: 400, duration: 0.08, Q: 15 },
+        tile:  { reverbTime: 0.5, wet: 0.2, freqBase: 800,  freqRange: 300, duration: 0.05, Q: 8 },
+        room:  { reverbTime: 0.2, wet: 0.2, freqBase: 800,  freqRange: 300, duration: 0.05, Q: 8 }
+    };
 
-        // Create the drip
+    // Impulse responses are expensive to generate - cache one per drip type
+    const dripImpulseCache = {};
+
+    function getDripImpulse(ctx, type) {
+        const profile = DRIP_PROFILES[type] || DRIP_PROFILES.room;
+        const key = type + ':' + ctx.sampleRate;
+        if (!dripImpulseCache[key]) {
+            dripImpulseCache[key] = createReverbImpulse(ctx, profile.reverbTime, 3);
+        }
+        return dripImpulseCache[key];
+    }
+
+    /**
+     * Fire a single drip into pre-built dry/wet destinations
+     */
+    function triggerDrip(ctx, dryDest, wetDest, type, gain) {
+        const profile = DRIP_PROFILES[type] || DRIP_PROFILES.room;
+        const freq = profile.freqBase + Math.random() * profile.freqRange;
+        const duration = profile.duration;
+
         const osc = ctx.createOscillator();
         const dripGain = ctx.createGain();
         const filter = ctx.createBiquadFilter();
 
         osc.type = 'sine';
-        osc.frequency.value = freq;
         // Pitch drops slightly (water drop characteristic)
         osc.frequency.setValueAtTime(freq, ctx.currentTime);
         osc.frequency.exponentialRampToValueAtTime(freq * 0.7, ctx.currentTime + duration);
 
         filter.type = 'bandpass';
         filter.frequency.value = freq;
-        filter.Q.value = type === 'metal' ? 15 : 8;
+        filter.Q.value = profile.Q;
 
         const now = ctx.currentTime;
         dripGain.gain.setValueAtTime(0, now);
         dripGain.gain.linearRampToValueAtTime(gain, now + 0.002);
         dripGain.gain.exponentialRampToValueAtTime(0.001, now + duration);
 
-        // Mini reverb for the space character
-        const reverbTime = type === 'metal' ? 0.3 : type === 'tile' ? 0.5 : 0.2;
-        const reverb = ctx.createConvolver();
-        reverb.buffer = createReverbImpulse(ctx, reverbTime, 3);
-
-        const reverbGain = ctx.createGain();
-        reverbGain.gain.value = type === 'metal' ? 0.4 : 0.2;
-
-        const dry = ctx.createGain();
-        dry.gain.value = 0.7;
-
         osc.connect(filter);
         filter.connect(dripGain);
-        dripGain.connect(dry);
-        dripGain.connect(reverb);
-        reverb.connect(reverbGain);
-        dry.connect(destination);
-        reverbGain.connect(destination);
+        dripGain.connect(dryDest);
+        if (wetDest) dripGain.connect(wetDest);
 
         osc.start(now);
-        osc.stop(now + duration + reverbTime + 0.1);
+        osc.stop(now + duration + 0.05);
 
         return osc;
     }
 
     /**
-     * Schedule drips with reverb character
+     * Create drip with specific reverb character (one-off)
+     * @param {string} type - 'metal' (bucket), 'tile' (bathroom), 'room' (general)
+     */
+    function createDripWithReverb(ctx, destination, type = 'room', gain = 0.15) {
+        const profile = DRIP_PROFILES[type] || DRIP_PROFILES.room;
+
+        const reverb = ctx.createConvolver();
+        reverb.buffer = getDripImpulse(ctx, type);
+
+        const reverbGain = ctx.createGain();
+        reverbGain.gain.value = profile.wet;
+
+        const dry = ctx.createGain();
+        dry.gain.value = 0.7;
+
+        reverb.connect(reverbGain);
+        reverbGain.connect(destination);
+        dry.connect(destination);
+
+        const osc = triggerDrip(ctx, dry, reverb, type, gain);
+
+        // Detach the one-off reverb chain once the tail has rung out
+        setTimeout(() => {
+            try { reverb.disconnect(); } catch(e) {}
+            try { reverbGain.disconnect(); } catch(e) {}
+            try { dry.disconnect(); } catch(e) {}
+        }, (profile.duration + profile.reverbTime + 0.3) * 1000);
+
+        return osc;
+    }
+
+    /**
+     * Schedule drips sharing one persistent reverb chain
+     * (avoids building a ConvolverNode per drip)
      */
     function scheduleDripsWithReverb(ctx, destination, minInterval, maxInterval, type = 'room', gain = 0.15) {
-        let timeoutId = null;
-        let isRunning = false;
+        const profile = DRIP_PROFILES[type] || DRIP_PROFILES.room;
 
-        function scheduleNext() {
-            if (!isRunning) return;
-            const interval = (minInterval + Math.random() * (maxInterval - minInterval)) * 1000;
-            timeoutId = setTimeout(() => {
-                if (!isRunning) return;
-                createDripWithReverb(ctx, destination, type, gain);
-                scheduleNext();
-            }, interval);
-        }
+        const reverb = ctx.createConvolver();
+        reverb.buffer = getDripImpulse(ctx, type);
+
+        const reverbGain = ctx.createGain();
+        reverbGain.gain.value = profile.wet;
+
+        const dry = ctx.createGain();
+        dry.gain.value = 0.7;
+
+        reverb.connect(reverbGain);
+        reverbGain.connect(destination);
+        dry.connect(destination);
+
+        const scheduler = createScheduler(minInterval, maxInterval, () => {
+            triggerDrip(ctx, dry, reverb, type, gain);
+        });
 
         return {
-            start: () => {
-                isRunning = true;
-                scheduleNext();
-            },
+            start: scheduler.start,
             stop: () => {
-                isRunning = false;
-                if (timeoutId) clearTimeout(timeoutId);
+                scheduler.stop();
+                try { reverb.disconnect(); } catch(e) {}
+                try { reverbGain.disconnect(); } catch(e) {}
+                try { dry.disconnect(); } catch(e) {}
             }
         };
     }
@@ -910,29 +935,9 @@ const Synthesis = (function() {
      * Schedule creaks at random intervals
      */
     function scheduleCreaks(ctx, destination, minInterval, maxInterval, gain = 0.1) {
-        let timeoutId = null;
-        let isRunning = false;
-
-        function scheduleNext() {
-            if (!isRunning) return;
-            const interval = (minInterval + Math.random() * (maxInterval - minInterval)) * 1000;
-            timeoutId = setTimeout(() => {
-                if (!isRunning) return;
-                createCreak(ctx, destination, gain);
-                scheduleNext();
-            }, interval);
-        }
-
-        return {
-            start: () => {
-                isRunning = true;
-                scheduleNext();
-            },
-            stop: () => {
-                isRunning = false;
-                if (timeoutId) clearTimeout(timeoutId);
-            }
-        };
+        return createScheduler(minInterval, maxInterval, () => {
+            createCreak(ctx, destination, gain);
+        });
     }
 
     /**
@@ -991,6 +996,7 @@ const Synthesis = (function() {
 
     return {
         resetSeed,
+        createScheduler,
         createPinkNoiseBuffer,
         createWhiteNoiseBuffer,
         createFilteredNoise,

@@ -188,6 +188,87 @@ html, body {
     -webkit-user-select: none;
 }
 
+/* Cursor glow - soft light following the listener's position */
+.cursor-glow {
+    position: fixed;
+    width: 320px;
+    height: 320px;
+    margin: -160px 0 0 -160px;
+    border-radius: 50%;
+    background: radial-gradient(circle,
+        rgba(253, 208, 165, 0.07) 0%,
+        rgba(253, 208, 165, 0) 70%);
+    pointer-events: none;
+    z-index: 50;
+    transition: left 0.1s linear, top 0.1s linear;
+}
+
+.cursor-glow.hidden {
+    display: none;
+}
+
+/* Zone label - appears when dwelling in place */
+.zone-label {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 0.75rem;
+    font-weight: 300;
+    color: var(--heated-accent-dim);
+    letter-spacing: 0.35em;
+    text-transform: lowercase;
+    opacity: 0;
+    transition: opacity 1.5s ease;
+    pointer-events: none;
+}
+
+.zone-label.visible {
+    opacity: 1;
+}
+
+/* Event pulses - synced to zone sounds */
+.sound-space::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: #ffffff;
+    opacity: 0;
+    pointer-events: none;
+}
+
+.sound-space.flash::after {
+    animation: zone-flash 0.6s ease-out;
+}
+
+@keyframes zone-flash {
+    0% { opacity: 0.06; }
+    100% { opacity: 0; }
+}
+
+.sound-space.shake {
+    animation: zone-shake 0.5s ease-in-out;
+}
+
+@keyframes zone-shake {
+    0%, 100% { transform: translate(0, 0); }
+    20% { transform: translate(1px, 0); }
+    40% { transform: translate(-1px, 1px); }
+    60% { transform: translate(1px, -1px); }
+    80% { transform: translate(-1px, 0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .sound-space.flash::after,
+    .sound-space.shake {
+        animation: none;
+    }
+
+    .cursor-glow {
+        transition: none;
+    }
+}
+
 /* Gyroscope Button (Mobile) */
 .gyro-button {
     position: fixed;

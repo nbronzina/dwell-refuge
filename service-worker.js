@@ -3,7 +3,7 @@
 // Offline support and caching
 // ============================================
 
-const CACHE_NAME = 'dwell-refuge-v1';
+const CACHE_NAME = 'dwell-refuge-v2';
 const ASSETS = [
     '/',
     '/index.html',
@@ -47,8 +47,31 @@ self.addEventListener('activate', (event) => {
     );
 });
 
-// Fetch: serve from cache, fallback to network
+// Fetch:
+// - Navigations (index.html) are network-first so deploys reach
+//   existing users without a manual cache bump
+// - Everything else is cache-first for offline speed
 self.addEventListener('fetch', (event) => {
+    const isNavigation = event.request.mode === 'navigate' ||
+        event.request.url.endsWith('/index.html');
+
+    if (isNavigation) {
+        event.respondWith(
+            fetch(event.request)
+                .then(response => {
+                    const copy = response.clone();
+                    caches.open(CACHE_NAME)
+                        .then(cache => cache.put(event.request, copy));
+                    return response;
+                })
+                .catch(() => {
+                    return caches.match(event.request)
+                        .then(r => r || caches.match('/index.html'));
+                })
+        );
+        return;
+    }
+
     event.respondWith(
         caches.match(event.request)
             .then(response => {

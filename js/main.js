@@ -11,11 +11,20 @@
     const enterBtn = document.getElementById('enterBtn');
     const soundSpace = document.getElementById('space');
     const hint = document.getElementById('hint');
+    const zoneLabel = document.getElementById('zoneLabel');
     const backLink = document.querySelector('.back-link');
+
+    const reducedMotion = window.matchMedia &&
+        window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+    // Zone label appears after this much stillness
+    const LABEL_DELAY = 5;              // seconds
+    const STILLNESS_THRESHOLD = 0.05;   // velocity below this counts as still
 
     // State
     let hasEntered = false;
     let isExiting = false;
+    let stillTime = 0;
 
     // Initialize
     function init() {
@@ -28,7 +37,7 @@
             enter();
         });
 
-        // Back link with graceful exit
+        // Back link: fade out, close audio, then navigate
         if (backLink) {
             backLink.addEventListener('click', function(e) {
                 if (hasEntered && !isExiting) {
@@ -41,11 +50,10 @@
             });
         }
 
-        // Graceful exit on page unload
-        window.addEventListener('beforeunload', function() {
-            if (hasEntered) {
-                RefugeAudio.gracefulExit();
-            }
+        // The page is actually going away: no time for a fade,
+        // just avoid an audible click
+        window.addEventListener('pagehide', function() {
+            RefugeAudio.muteImmediately();
         });
 
         // Keyboard support
@@ -59,10 +67,69 @@
                 leave();
             }
         });
+
+        // Visual pulses synced to zone sound events
+        document.addEventListener('refuge:event', handleZoneEvent);
+
+        // Zone label on stillness
+        setInterval(updateZoneLabel, 500);
     }
 
+    // ============================================
+    // VISUAL PULSES
+    // ============================================
+
+    function handleZoneEvent(e) {
+        if (!hasEntered || reducedMotion) return;
+
+        const type = e.detail && e.detail.type;
+        if (type === 'thunder') {
+            pulse('flash', 600);
+        } else if (type === 'glass') {
+            pulse('shake', 500);
+        }
+    }
+
+    function pulse(className, duration) {
+        soundSpace.classList.remove(className);
+        void soundSpace.offsetWidth;  // restart the CSS animation
+        soundSpace.classList.add(className);
+        setTimeout(function() {
+            soundSpace.classList.remove(className);
+        }, duration);
+    }
+
+    // ============================================
+    // ZONE LABEL (dwelling reveals where you are)
+    // ============================================
+
+    function updateZoneLabel() {
+        if (!zoneLabel) return;
+
+        if (!hasEntered || !RefugeAudio.isRunning()) {
+            stillTime = 0;
+            zoneLabel.classList.remove('visible');
+            return;
+        }
+
+        if (RefugeInput.getVelocity() < STILLNESS_THRESHOLD) {
+            stillTime += 0.5;
+            if (stillTime >= LABEL_DELAY) {
+                zoneLabel.textContent = RefugeAudio.getDominantZone() || '';
+                zoneLabel.classList.add('visible');
+            }
+        } else {
+            stillTime = 0;
+            zoneLabel.classList.remove('visible');
+        }
+    }
+
+    // ============================================
+    // ENTER / LEAVE
+    // ============================================
+
     function enter() {
-        if (hasEntered) return;
+        if (hasEntered || isExiting) return;
         hasEntered = true;
 
         // Start audio
@@ -88,12 +155,11 @@
         if (!hasEntered || isExiting) return;
         isExiting = true;
 
-        // Graceful audio fade out
-        RefugeAudio.gracefulExit().then(function() {
-            // Deactivate input
-            RefugeInput.deactivate();
+        RefugeInput.deactivate();
 
-            // Reset UI
+        // Fade audio out but keep the context alive so
+        // the piece can be entered again
+        RefugeAudio.fadeOutAndStop(2).then(function() {
             soundSpace.classList.add('hidden');
             entryScreen.style.display = '';
             entryScreen.classList.remove('fade-out');

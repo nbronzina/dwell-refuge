@@ -36,6 +36,18 @@ const RefugeAudio = (function() {
         refuge: 0.3      // Almost subliminal - the calm
     };
 
+    // Gain each zone drifts toward while it stays dominant
+    // (hostile zones intensify, refuge settles even calmer)
+    const EVOLUTION_TARGETS = {
+        storm: 0.85,
+        heat: 0.6,
+        flood: 0.9,
+        drought: 0.7,
+        refuge: 0.22
+    };
+    const EVOLUTION_RAMP_UP = 120;   // seconds to full intensity while dominant
+    const EVOLUTION_RAMP_DOWN = 30;  // seconds to settle back after leaving
+
     const DISTANCE_FACTOR = 12;  // Steep falloff for focused listening
 
     // Smoothing time constants (seconds)
@@ -50,12 +62,14 @@ const RefugeAudio = (function() {
     let position = { x: 0.5, y: 0.5 };
 
     // Temporal evolution tracking
-    let timeInCurrentZone = 0;
     let lastDominantZone = null;
     let lastEvolutionUpdate = 0;
+    let welcomeTimeout = null;
 
-    // Micro-drift LFOs (one per zone)
+    // Micro-drift LFOs
     let microDrifts = [];
+
+    let visibilityHooked = false;
 
     // ============================================
     // INITIALIZATION
@@ -113,8 +127,11 @@ const RefugeAudio = (function() {
         delayGain.connect(masterGain);
         reverbGain.connect(masterGain);
 
-        // Tab visibility handling
-        setupVisibilityHandling();
+        // Tab visibility handling (hook once - init can run again after teardown)
+        if (!visibilityHooked) {
+            visibilityHooked = true;
+            setupVisibilityHandling();
+        }
     }
 
     // ============================================
@@ -159,6 +176,14 @@ const RefugeAudio = (function() {
         if (masterGain) {
             masterGain.gain.setTargetAtTime(1, audioContext.currentTime, 0.5);
         }
+
+        // Restart the update loop (it may have exited while paused)
+        if (animationFrameId) {
+            cancelAnimationFrame(animationFrameId);
+            animationFrameId = null;
+        }
+        lastEvolutionUpdate = 0;
+        updateGlobalEffects();
     }
 
     // ============================================
@@ -173,19 +198,37 @@ const RefugeAudio = (function() {
     // MICRO-DRIFT (subtle parameter breathing)
     // ============================================
 
-    function createMicroDrift(param, range, speed) {
+    function createMicroDrift(param, range, speed, baseValue) {
         const lfo = audioContext.createOscillator();
         const lfoGain = audioContext.createGain();
 
         lfo.type = 'sine';
         lfo.frequency.value = speed;
-        lfoGain.gain.value = param.value * range;
+        // Amplitude from the intended base value, not the current one
+        // (params like masterGain are still 0 when drifts are created)
+        const base = baseValue !== undefined ? baseValue : param.value;
+        lfoGain.gain.value = base * range;
 
         lfo.connect(lfoGain);
         lfoGain.connect(param);
         lfo.start();
 
         return { lfo, lfoGain, stop: () => { try { lfo.stop(); } catch(e) {} } };
+    }
+
+    function setupMicroDrifts() {
+        cleanupMicroDrifts();
+
+        // Filter cutoff drift (±10% of resting cutoff, very slow)
+        microDrifts.push(createMicroDrift(filterNode.frequency, 0.1, 0.015, 6000));
+
+        // Master gain drift (±3% of full level, subtle breathing)
+        microDrifts.push(createMicroDrift(masterGain.gain, 0.03, 0.008, 1));
+    }
+
+    function cleanupMicroDrifts() {
+        microDrifts.forEach(d => d.stop());
+        microDrifts = [];
     }
 
     // ============================================
@@ -213,48 +256,45 @@ const RefugeAudio = (function() {
         const dominantZone = getDominantZone();
 
         if (dominantZone !== lastDominantZone) {
-            // Zone changed - reset timer
-            timeInCurrentZone = 0;
             lastDominantZone = dominantZone;
-        } else {
-            timeInCurrentZone += deltaTime;
+            scheduleWelcomeEvent(dominantZone);
         }
 
-        // Evolution factor: 0 to 1 over 2 minutes
-        const evolutionFactor = Math.min(timeInCurrentZone / 120, 1);
+        // Dominant zone intensifies; the others settle back to base
+        activeSources.forEach(source => {
+            if (source.name === dominantZone) {
+                source.evolutionFactor = Math.min(1, source.evolutionFactor + deltaTime / EVOLUTION_RAMP_UP);
+            } else {
+                source.evolutionFactor = Math.max(0, source.evolutionFactor - deltaTime / EVOLUTION_RAMP_DOWN);
+            }
 
-        // Apply evolution to the dominant zone
-        applyEvolution(dominantZone, evolutionFactor);
-    }
-
-    function applyEvolution(zone, factor) {
-        // Find the source for this zone
-        const source = activeSources.find(s => s.name === zone);
-        if (!source) return;
-
-        // Adjust max gain based on evolution
-        // Hostile zones intensify, refuge calms
-        switch(zone) {
-            case 'storm':
-                source.evolutionGain = lerp(0.7, 0.85, factor);
-                break;
-            case 'heat':
-                source.evolutionGain = lerp(0.5, 0.6, factor);
-                break;
-            case 'flood':
-                source.evolutionGain = lerp(0.75, 0.9, factor);
-                break;
-            case 'drought':
-                source.evolutionGain = lerp(0.6, 0.7, factor);
-                break;
-            case 'refuge':
-                source.evolutionGain = lerp(0.3, 0.22, factor);
-                break;
-        }
+            const target = EVOLUTION_TARGETS[source.name] || source.maxGain;
+            source.evolutionGain = lerp(source.maxGain, target, source.evolutionFactor);
+        });
     }
 
     function lerp(a, b, t) {
         return a + (b - a) * t;
+    }
+
+    // ============================================
+    // WELCOME EVENTS
+    // Entering a zone triggers a characteristic sound
+    // within a few seconds, so exploration reads immediately
+    // ============================================
+
+    function scheduleWelcomeEvent(zoneName) {
+        if (welcomeTimeout) clearTimeout(welcomeTimeout);
+
+        welcomeTimeout = setTimeout(() => {
+            welcomeTimeout = null;
+            if (!isRunning || isPaused) return;
+            // Only fire if the listener is still in this zone
+            if (getDominantZone() !== zoneName) return;
+
+            const source = activeSources.find(s => s.name === zoneName);
+            if (source && source.trigger) source.trigger();
+        }, 2000 + Math.random() * 2000);
     }
 
     // ============================================
@@ -265,15 +305,23 @@ const RefugeAudio = (function() {
         if (!audioContext || !masterGain) return Promise.resolve();
 
         const fadeTime = 2;
+        const ctx = audioContext;
 
         return new Promise(resolve => {
-            masterGain.gain.setTargetAtTime(0, audioContext.currentTime, fadeTime / 3);
+            masterGain.gain.setTargetAtTime(0, ctx.currentTime, fadeTime / 3);
             setTimeout(() => {
-                if (audioContext) {
-                    audioContext.close().then(resolve).catch(resolve);
-                } else {
-                    resolve();
-                }
+                teardown();
+                // Release everything so a future init() builds a fresh context
+                audioContext = null;
+                masterGain = null;
+                compressor = null;
+                filterNode = null;
+                reverbNode = null;
+                reverbGain = null;
+                delayNode = null;
+                delayFeedback = null;
+                delayGain = null;
+                ctx.close().then(resolve).catch(resolve);
             }, fadeTime * 1000);
         });
     }
@@ -286,8 +334,18 @@ const RefugeAudio = (function() {
         activeSources = [];
 
         Zones.ZONE_SOURCES.forEach(zoneDef => {
+            // Per-zone stereo placement based on the zone's X position
+            // (falls back to a plain gain where StereoPannerNode is missing)
+            const zoneOut = audioContext.createStereoPanner
+                ? audioContext.createStereoPanner()
+                : audioContext.createGain();
+            if (zoneOut.pan) {
+                zoneOut.pan.value = (zoneDef.x - 0.5) * 1.4;
+            }
+            zoneOut.connect(filterNode);
+
             // Create zone with its soundscape
-            const zone = zoneDef.create(audioContext, filterNode);
+            const zone = zoneDef.create(audioContext, zoneOut);
 
             // Get optimized gain for this zone
             const maxGain = ZONE_GAINS[zoneDef.name] || 0.5;
@@ -297,33 +355,17 @@ const RefugeAudio = (function() {
                 x: zoneDef.x,
                 y: zoneDef.y,
                 gainNode: zone.gainNode,
+                trigger: zone.trigger,
                 cleanup: zone.cleanup,
+                output: zoneOut,
                 maxGain: maxGain,
-                evolutionGain: maxGain  // Start at base gain
+                evolutionGain: maxGain,
+                evolutionFactor: 0
             });
         });
 
-        // Setup micro-drifts on master filter
+        // Setup micro-drifts on master parameters
         setupMicroDrifts();
-    }
-
-    function setupMicroDrifts() {
-        // Clean up existing drifts
-        microDrifts.forEach(d => d.stop());
-        microDrifts = [];
-
-        // Filter cutoff drift (±10%, very slow)
-        const filterDrift = createMicroDrift(filterNode.frequency, 0.1, 0.015);
-        microDrifts.push(filterDrift);
-
-        // Master gain drift (±3%, subtle breathing)
-        const gainDrift = createMicroDrift(masterGain.gain, 0.03, 0.008);
-        microDrifts.push(gainDrift);
-    }
-
-    function cleanupMicroDrifts() {
-        microDrifts.forEach(d => d.stop());
-        microDrifts = [];
     }
 
     function updateZoneGains() {
@@ -332,11 +374,8 @@ const RefugeAudio = (function() {
             const dy = position.y - source.y;
             const distance = Math.sqrt(dx * dx + dy * dy);
 
-            // Use evolution gain if available, otherwise base maxGain
-            const effectiveMaxGain = source.evolutionGain || source.maxGain;
-
             // Inverse distance attenuation with steeper falloff
-            const gain = effectiveMaxGain / (1 + distance * DISTANCE_FACTOR);
+            const gain = source.evolutionGain / (1 + distance * DISTANCE_FACTOR);
 
             smoothParam(source.gainNode.gain, gain, SMOOTH.zoneGain);
         });
@@ -348,9 +387,6 @@ const RefugeAudio = (function() {
 
     function updateGlobalEffects() {
         if (!audioContext || !isRunning || isPaused) {
-            if (isRunning && !isPaused) {
-                animationFrameId = requestAnimationFrame(updateGlobalEffects);
-            }
             return;
         }
 
@@ -388,6 +424,48 @@ const RefugeAudio = (function() {
     }
 
     // ============================================
+    // TEARDOWN
+    // ============================================
+
+    function teardown() {
+        isRunning = false;
+        isPaused = false;
+
+        if (animationFrameId) {
+            cancelAnimationFrame(animationFrameId);
+            animationFrameId = null;
+        }
+        if (welcomeTimeout) {
+            clearTimeout(welcomeTimeout);
+            welcomeTimeout = null;
+        }
+
+        cleanupMicroDrifts();
+
+        activeSources.forEach(source => {
+            if (source.cleanup) source.cleanup();
+            if (source.output) {
+                try { source.output.disconnect(); } catch(e) {}
+            }
+        });
+        activeSources = [];
+
+        lastDominantZone = null;
+        lastEvolutionUpdate = 0;
+    }
+
+    function stopEngine() {
+        if (!isRunning) return;
+        const ctx = audioContext;
+        teardown();
+
+        // Silence any residual tails
+        if (masterGain && ctx) {
+            masterGain.gain.setTargetAtTime(0, ctx.currentTime, 0.5);
+        }
+    }
+
+    // ============================================
     // PUBLIC API
     // ============================================
 
@@ -403,6 +481,7 @@ const RefugeAudio = (function() {
 
             isRunning = true;
             isPaused = false;
+            lastEvolutionUpdate = 0;
 
             // Create all zone sources
             createZoneSources();
@@ -411,42 +490,41 @@ const RefugeAudio = (function() {
             updateGlobalEffects();
 
             // Fade in master - 4 second emergence from silence
+            masterGain.gain.cancelScheduledValues(audioContext.currentTime);
             masterGain.gain.setValueAtTime(0, audioContext.currentTime);
             masterGain.gain.linearRampToValueAtTime(1, audioContext.currentTime + 4);
         },
 
-        stop: function() {
-            if (!isRunning) return;
-            isRunning = false;
-            isPaused = false;
+        stop: stopEngine,
 
-            // Reset evolution tracking
-            timeInCurrentZone = 0;
-            lastDominantZone = null;
-            lastEvolutionUpdate = 0;
+        // Fade over `seconds`, then stop sources but keep the context
+        // alive so the piece can be re-entered
+        fadeOutAndStop: function(seconds) {
+            const fade = seconds || 2;
+            if (!isRunning) return Promise.resolve();
 
-            // Cancel animation frame
-            if (animationFrameId) {
-                cancelAnimationFrame(animationFrameId);
-                animationFrameId = null;
+            if (masterGain && audioContext) {
+                masterGain.gain.setTargetAtTime(0, audioContext.currentTime, fade / 3);
             }
 
-            // Cleanup micro-drifts
-            cleanupMicroDrifts();
-
-            // Cleanup all zone sources
-            activeSources.forEach(source => {
-                if (source.cleanup) source.cleanup();
+            return new Promise(resolve => {
+                setTimeout(() => {
+                    stopEngine();
+                    resolve();
+                }, fade * 1000);
             });
-            activeSources = [];
-
-            // Fade out with smooth decay
-            if (masterGain) {
-                masterGain.gain.setTargetAtTime(0, audioContext.currentTime, 0.5);
-            }
         },
 
+        // Full exit: fade, tear down and close the context
         gracefulExit: gracefulExit,
+
+        // Instant silence for pagehide (no time for a fade)
+        muteImmediately: function() {
+            if (masterGain && audioContext) {
+                masterGain.gain.cancelScheduledValues(audioContext.currentTime);
+                masterGain.gain.value = 0;
+            }
+        },
 
         setPosition: function(x, y) {
             position.x = Math.max(0, Math.min(1, x));
@@ -455,6 +533,10 @@ const RefugeAudio = (function() {
 
         isRunning: function() {
             return isRunning && !isPaused;
+        },
+
+        getDominantZone: function() {
+            return isRunning ? getDominantZone() : null;
         },
 
         getZoneSources: function() {

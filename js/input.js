@@ -1,14 +1,15 @@
 // ============================================
 // DWELL:REFUGE - Input Handler
-// Cursor tracking with zone-based color response
-// Optimized with throttling for performance
-// Includes gyroscope support for mobile
+// Mouse, touch, keyboard and gyroscope input
+// with zone-based color response.
+// Throttled for performance.
 // ============================================
 
 const RefugeInput = (function() {
     'use strict';
 
     let cursor = null;
+    let glow = null;
     let soundSpace = null;
     let isActive = false;
     let lastPosition = { x: 0.5, y: 0.5 };
@@ -23,10 +24,15 @@ const RefugeInput = (function() {
     const VELOCITY_SMOOTHING = 0.1;
     const VELOCITY_DECAY = 0.95;
 
+    // Keyboard step per keydown (arrow keys)
+    const KEY_STEP = 0.02;
+
     // Gyroscope state
     let useGyro = false;
     let gyroAvailable = false;
     let gyroButton = null;
+    let gyroBase = null;       // Orientation captured when gyro starts
+    const GYRO_RANGE = 30;     // Degrees of tilt from start = full travel
 
     // Zone colors (subtle tints based on climate zones)
     // Base is Heated brown #332b28 (51, 43, 40)
@@ -81,6 +87,14 @@ const RefugeInput = (function() {
             document.body.appendChild(cursor);
         }
 
+        // Soft light that follows the listener's position
+        glow = document.querySelector('.cursor-glow');
+        if (!glow) {
+            glow = document.createElement('div');
+            glow.className = 'cursor-glow hidden';
+            document.body.appendChild(glow);
+        }
+
         soundSpace = document.getElementById('space');
 
         // Mouse events
@@ -93,6 +107,9 @@ const RefugeInput = (function() {
         document.addEventListener('touchmove', handleTouch, { passive: true });
         document.addEventListener('touchend', handleTouchEnd);
 
+        // Keyboard navigation (arrow keys)
+        document.addEventListener('keydown', handleKey);
+
         // Check for gyroscope availability
         checkGyroAvailability();
 
@@ -100,12 +117,56 @@ const RefugeInput = (function() {
         requestAnimationFrame(updateVelocity);
     }
 
+    function handleMove(e) {
+        if (!isActive) return;
+
+        const x = e.clientX / window.innerWidth;
+        const y = e.clientY / window.innerHeight;
+
+        updatePosition(x, y, e.clientX, e.clientY);
+    }
+
+    function handleTouch(e) {
+        if (!isActive || !e.touches.length) return;
+
+        const touch = e.touches[0];
+        const x = touch.clientX / window.innerWidth;
+        const y = touch.clientY / window.innerHeight;
+
+        updatePosition(x, y, touch.clientX, touch.clientY);
+    }
+
+    function handleTouchEnd() {
+        // Keep last position, just stop updating
+    }
+
+    function handleKey(e) {
+        if (!isActive) return;
+
+        let x = lastPosition.x;
+        let y = lastPosition.y;
+
+        switch (e.key) {
+            case 'ArrowLeft':  x -= KEY_STEP; break;
+            case 'ArrowRight': x += KEY_STEP; break;
+            case 'ArrowUp':    y -= KEY_STEP; break;
+            case 'ArrowDown':  y += KEY_STEP; break;
+            default: return;
+        }
+
+        e.preventDefault();
+        x = Math.max(0, Math.min(1, x));
+        y = Math.max(0, Math.min(1, y));
+
+        showCursor();
+        updatePosition(x, y, x * window.innerWidth, y * window.innerHeight);
+    }
+
     // ============================================
     // GYROSCOPE SUPPORT
     // ============================================
 
     function checkGyroAvailability() {
-        // Check if device orientation is available
         if ('DeviceOrientationEvent' in window) {
             gyroAvailable = true;
         }
@@ -152,78 +213,47 @@ const RefugeInput = (function() {
 
     function enableGyro() {
         useGyro = true;
+        gyroBase = null;  // Recalibrate to however the device is held now
         window.addEventListener('deviceorientation', handleOrientation);
 
-        // Hide cursor when using gyro
-        if (cursor) {
-            cursor.classList.add('hidden');
-        }
+        // Hide the crosshair cursor; the glow shows position instead
+        if (cursor) cursor.classList.add('hidden');
+        if (glow) glow.classList.remove('hidden');
     }
 
     function disableGyro() {
         useGyro = false;
+        gyroBase = null;
         window.removeEventListener('deviceorientation', handleOrientation);
     }
 
     function handleOrientation(e) {
         if (!useGyro || !isActive) return;
+        if (e.beta === null || e.gamma === null) return;
 
-        const now = performance.now();
+        // Calibrate to the orientation the device is held in when
+        // gyro starts, so it works flat on a table or held upright
+        if (!gyroBase) {
+            gyroBase = { beta: e.beta, gamma: e.gamma };
+        }
 
-        // beta: front-to-back tilt (-180 to 180)
-        // gamma: left-to-right tilt (-90 to 90)
+        // ±GYRO_RANGE degrees of tilt from the start position = full travel
+        let x = 0.5 + (e.gamma - gyroBase.gamma) / (GYRO_RANGE * 2);
+        let y = 0.5 + (e.beta - gyroBase.beta) / (GYRO_RANGE * 2);
 
-        // Normalize to 0-1 with comfortable tilt ranges
-        // gamma: -45 to +45 degrees maps to 0-1 (x axis)
-        // beta: 0 to 90 degrees maps to 0-1 (y axis) - phone tilted up
-        let x = (e.gamma + 45) / 90;
-        let y = (e.beta) / 90;
-
-        // Clamp values
         x = Math.max(0, Math.min(1, x));
         y = Math.max(0, Math.min(1, y));
 
-        lastPosition.x = x;
-        lastPosition.y = y;
-
-        // Throttle audio updates
-        if (now - lastAudioUpdate >= AUDIO_THROTTLE_MS) {
-            lastAudioUpdate = now;
-
-            if (typeof RefugeAudio !== 'undefined') {
-                RefugeAudio.setPosition(x, y);
-            }
-
-            updateBackgroundColor(x, y);
-        }
+        updatePosition(x, y, x * window.innerWidth, y * window.innerHeight);
     }
 
     function isMobile() {
         return /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
     }
 
-    function handleMove(e) {
-        if (!isActive) return;
-
-        const x = e.clientX / window.innerWidth;
-        const y = e.clientY / window.innerHeight;
-
-        updatePosition(x, y, e.clientX, e.clientY);
-    }
-
-    function handleTouch(e) {
-        if (!isActive || !e.touches.length) return;
-
-        const touch = e.touches[0];
-        const x = touch.clientX / window.innerWidth;
-        const y = touch.clientY / window.innerHeight;
-
-        updatePosition(x, y, touch.clientX, touch.clientY);
-    }
-
-    function handleTouchEnd() {
-        // Keep last position, just stop updating
-    }
+    // ============================================
+    // POSITION UPDATE
+    // ============================================
 
     function updatePosition(x, y, screenX, screenY) {
         const now = performance.now();
@@ -243,10 +273,14 @@ const RefugeInput = (function() {
         lastPosition.y = y;
         lastMoveTime = now;
 
-        // Update cursor position (every frame for smooth visuals)
+        // Update cursor + glow position (every frame for smooth visuals)
         if (cursor) {
             cursor.style.left = screenX + 'px';
             cursor.style.top = screenY + 'px';
+        }
+        if (glow) {
+            glow.style.left = screenX + 'px';
+            glow.style.top = screenY + 'px';
         }
 
         // Throttle audio updates (~30fps is sufficient for smooth transitions)
@@ -270,14 +304,21 @@ const RefugeInput = (function() {
     }
 
     function showCursor() {
-        if (cursor) {
+        if (cursor && !useGyro) {
             cursor.classList.remove('hidden');
+        }
+        if (glow) {
+            glow.classList.remove('hidden');
         }
     }
 
     function hideCursor() {
         if (cursor) {
             cursor.classList.add('hidden');
+        }
+        // Keep the glow while gyro drives position
+        if (glow && !useGyro) {
+            glow.classList.add('hidden');
         }
     }
 
@@ -293,9 +334,10 @@ const RefugeInput = (function() {
 
     function deactivate() {
         isActive = false;
-        hideCursor();
         disableGyro();
+        hideCursor();
         removeGyroButton();
+        if (glow) glow.classList.add('hidden');
     }
 
     return {
