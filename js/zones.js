@@ -209,10 +209,12 @@ const Zones = (function() {
         let cicadas;
         if (Samples.has('cicadas')) {
             cicadas = Samples.createLoop(ctx, 'cicadas');
-            // Heard through closed glass: cut the highs
+            // Heard through closed glass: cut the highs. Real insect
+            // choruses live at 4kHz+, so the cutoff sits higher than
+            // the synth path or they'd vanish entirely
             const glassFilter = ctx.createBiquadFilter();
             glassFilter.type = 'lowpass';
-            glassFilter.frequency.value = 2000;
+            glassFilter.frequency.value = 3000;
             glassFilter.Q.value = 0.5;
             cicadas.connect(glassFilter);
             glassFilter.connect(windowBus);

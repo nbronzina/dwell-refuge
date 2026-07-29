@@ -31,8 +31,25 @@ thunder-1.mp3, thunder-2.mp3, thunder-3.mp3
   Processing: three ~10s excerpts around the loudest claps,
   faded, normalized
 
+cicadas.mp3
+  "Crickets Chirping At Night" by Lisa Redfern
+  https://soundbible.com/2083-Crickets-Chirping-At-Night.html
+  License: Public Domain
+  Sourced via github.com/rafaelmardojai/blanket ("Summer night")
+  Processing: 45s excerpt, normalized. A night insect chorus
+  rather than literal cicadas - the zone's closed-window filter
+  makes it read as "insects outside"
+
+splash-1.mp3, splash-2.mp3
+  "Boat" by Falcet
+  https://freesound.org/people/Falcet/sounds/439365/
+  License: CC0
+  Sourced via github.com/rafaelmardojai/blanket
+  Processing: the two strongest water-slosh transients, ~2s each,
+  faded and normalized
+
 Attribution note: CC BY requires credit. These authors are also
 credited on the piece's entry screen. Keep both when deploying.
 
 Still synthesized (no recording yet - drop files in to replace):
-  cicadas.mp3, room-tone.mp3, splash-1/2.mp3, creak-1/2.mp3
+  room-tone.mp3, creak-1/2.mp3
