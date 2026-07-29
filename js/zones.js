@@ -78,28 +78,37 @@ const Zones = (function() {
         const leakBus = createBus(ctx, masterGain, 0.5);     // leak, right, deeper in
         const outsideBus = createBus(ctx, masterGain, 0);    // thunder, everywhere
 
-        // 1. Rain on window - wash (60%)
-        const rainOnGlass = Synthesis.createFilteredNoise(ctx, 'pink', 'bandpass', 1800, 1.2);
-        rainOnGlass.gain.gain.value = 0.18;
-        rainOnGlass.connect(rainBus);
-        rainOnGlass.start();
-        cleanupFns.push(() => { try { rainOnGlass.stop(); } catch(e) {} });
+        // 1. Rain on window (60%): field recording when available,
+        // synthesized wash + individual droplets otherwise
+        if (Samples.has('rain-window')) {
+            const rain = Samples.createLoop(ctx, 'rain-window');
+            rain.gain.gain.value = 0.18;
+            rain.connect(rainBus);
+            rain.start();
+            cleanupFns.push(() => rain.stop());
+        } else {
+            const rainOnGlass = Synthesis.createFilteredNoise(ctx, 'pink', 'bandpass', 1800, 1.2);
+            rainOnGlass.gain.gain.value = 0.18;
+            rainOnGlass.connect(rainBus);
+            rainOnGlass.start();
+            cleanupFns.push(() => { try { rainOnGlass.stop(); } catch(e) {} });
 
-        // Rain intensity modulation (gusts)
-        const rainLfo = ctx.createOscillator();
-        const rainLfoGain = ctx.createGain();
-        rainLfo.type = 'sine';
-        rainLfo.frequency.value = 0.06;
-        rainLfoGain.gain.value = 0.05;
-        rainLfo.connect(rainLfoGain);
-        rainLfoGain.connect(rainOnGlass.gain.gain);
-        rainLfo.start();
-        cleanupFns.push(() => { try { rainLfo.stop(); } catch(e) {} });
+            // Rain intensity modulation (gusts)
+            const rainLfo = ctx.createOscillator();
+            const rainLfoGain = ctx.createGain();
+            rainLfo.type = 'sine';
+            rainLfo.frequency.value = 0.06;
+            rainLfoGain.gain.value = 0.05;
+            rainLfo.connect(rainLfoGain);
+            rainLfoGain.connect(rainOnGlass.gain.gain);
+            rainLfo.start();
+            cleanupFns.push(() => { try { rainLfo.stop(); } catch(e) {} });
 
-        // 1b. Individual raindrops across the glass
-        const patter = Synthesis.createRainPatter(ctx, rainBus, 7, 0.04);
-        patter.start();
-        cleanupFns.push(() => patter.stop());
+            // Individual raindrops across the glass
+            const patter = Synthesis.createRainPatter(ctx, rainBus, 7, 0.04);
+            patter.start();
+            cleanupFns.push(() => patter.stop());
+        }
 
         // 2. Interior leak - distinctive drip, semi-regular 2-4s (25%)
         const leak = Synthesis.scheduleDripsWithReverb(ctx, leakBus, 2, 4, 'room', 0.15);
@@ -116,7 +125,10 @@ const Zones = (function() {
         // 4. Thunder + glass vibration - 15-45 seconds (5%)
         function thunderEvent() {
             if (disposed) return;
-            Synthesis.createThunder(ctx, outsideBus, 0.5);
+            // Real thunder recording if present, synthesized otherwise
+            if (!Samples.playOneShot(ctx, 'thunder', outsideBus, 0.5)) {
+                Synthesis.createThunder(ctx, outsideBus, 0.5);
+            }
             dispatchZoneEvent('thunder');
             // The window answers the thunder
             setTimeout(() => {
@@ -193,9 +205,22 @@ const Zones = (function() {
         cleanupFns.push(() => fridge.stop());
 
         // 3. Distant cicadas through window (15%)
-        const cicadas = Synthesis.createFilteredCicadas(ctx, 3);
+        // Real cicadas are the biggest realism win over AM synthesis
+        let cicadas;
+        if (Samples.has('cicadas')) {
+            cicadas = Samples.createLoop(ctx, 'cicadas');
+            // Heard through closed glass: cut the highs
+            const glassFilter = ctx.createBiquadFilter();
+            glassFilter.type = 'lowpass';
+            glassFilter.frequency.value = 2000;
+            glassFilter.Q.value = 0.5;
+            cicadas.connect(glassFilter);
+            glassFilter.connect(windowBus);
+        } else {
+            cicadas = Synthesis.createFilteredCicadas(ctx, 3);
+            cicadas.connect(windowBus);
+        }
         cicadas.gain.gain.value = 0.05;
-        cicadas.connect(windowBus);
         cicadas.start();
         cleanupFns.push(() => cicadas.stop());
 
@@ -260,7 +285,13 @@ const Zones = (function() {
         const electricalBus = createBus(ctx, masterGain, -0.4); // hum, left
 
         // 1. Room tone - fundamental presence (60%)
-        const roomTone = Synthesis.createRoomTone(ctx, 55, 0.035);
+        let roomTone;
+        if (Samples.has('room-tone')) {
+            roomTone = Samples.createLoop(ctx, 'room-tone');
+            roomTone.gain.gain.value = 0.05;
+        } else {
+            roomTone = Synthesis.createRoomTone(ctx, 55, 0.035);
+        }
         roomTone.connect(masterGain);
         roomTone.start();
         cleanupFns.push(() => { try { roomTone.stop(); } catch(e) {} });
@@ -337,22 +368,31 @@ const Zones = (function() {
         const pumpBus = createBus(ctx, masterGain, -0.2);    // sump pump
 
         // 1. Water in pipes - constant gurgle (40%)
-        const pipes = Synthesis.createFilteredNoise(ctx, 'pink', 'bandpass', 350, 2);
-        pipes.gain.gain.value = 0.1;
-        pipes.connect(pipesBus);
-        pipes.start();
-        cleanupFns.push(() => { try { pipes.stop(); } catch(e) {} });
+        // A real recording carries its own irregular flow
+        if (Samples.has('water-pipes')) {
+            const pipes = Samples.createLoop(ctx, 'water-pipes');
+            pipes.gain.gain.value = 0.1;
+            pipes.connect(pipesBus);
+            pipes.start();
+            cleanupFns.push(() => pipes.stop());
+        } else {
+            const pipes = Synthesis.createFilteredNoise(ctx, 'pink', 'bandpass', 350, 2);
+            pipes.gain.gain.value = 0.1;
+            pipes.connect(pipesBus);
+            pipes.start();
+            cleanupFns.push(() => { try { pipes.stop(); } catch(e) {} });
 
-        // Pipe modulation - irregular flow
-        const pipeLfo = ctx.createOscillator();
-        const pipeLfoGain = ctx.createGain();
-        pipeLfo.type = 'sine';
-        pipeLfo.frequency.value = 0.12;
-        pipeLfoGain.gain.value = 0.035;
-        pipeLfo.connect(pipeLfoGain);
-        pipeLfoGain.connect(pipes.gain.gain);
-        pipeLfo.start();
-        cleanupFns.push(() => { try { pipeLfo.stop(); } catch(e) {} });
+            // Pipe modulation - irregular flow
+            const pipeLfo = ctx.createOscillator();
+            const pipeLfoGain = ctx.createGain();
+            pipeLfo.type = 'sine';
+            pipeLfo.frequency.value = 0.12;
+            pipeLfoGain.gain.value = 0.035;
+            pipeLfo.connect(pipeLfoGain);
+            pipeLfoGain.connect(pipes.gain.gain);
+            pipeLfo.start();
+            cleanupFns.push(() => { try { pipeLfo.stop(); } catch(e) {} });
+        }
 
         // 2. Drip into bucket - metallic, 1.5-3s, urgent (30%)
         const bucketDrip = Synthesis.scheduleDripsWithReverb(ctx, bucketBus, 1.5, 3, 'metal', 0.18);
@@ -382,6 +422,10 @@ const Zones = (function() {
 
         // 5. Splashes - 5-12s, from anywhere (3%)
         const splashScheduler = Synthesis.createScheduler(5, 12, () => {
+            // Real splash if a recording is available
+            if (Samples.playOneShot(ctx, 'splash', randomSpot(ctx, masterGain, 0.7, 1500), 0.06)) {
+                return;
+            }
             const splashBuf = Synthesis.createWhiteNoiseBuffer(ctx, 0.08);
             const splash = ctx.createBufferSource();
             splash.buffer = splashBuf;
@@ -442,19 +486,28 @@ const Zones = (function() {
         const windRightBus = createBus(ctx, masterGain, 0.5);
         const faucetBus = createBus(ctx, masterGain, 0.6);   // dry faucet, right
 
-        // 1. Dry wind - two decorrelated layers, one per side (50%)
-        // (shared noise buffer, random start offsets keep them apart)
-        const windLeft = Synthesis.createWind(ctx, 1200, 0.05, 0.12);
-        windLeft.gain.gain.value = 0.06;
-        windLeft.connect(windLeftBus);
-        windLeft.start();
-        cleanupFns.push(() => { try { windLeft.stop(); } catch(e) {} });
+        // 1. Dry wind (50%): a field recording carries its own width
+        // and movement; the synth fallback uses two decorrelated
+        // layers, one per side (shared noise buffer, random offsets)
+        if (Samples.has('wind-dry')) {
+            const wind = Samples.createLoop(ctx, 'wind-dry');
+            wind.gain.gain.value = 0.1;
+            wind.connect(masterGain);
+            wind.start();
+            cleanupFns.push(() => wind.stop());
+        } else {
+            const windLeft = Synthesis.createWind(ctx, 1200, 0.05, 0.12);
+            windLeft.gain.gain.value = 0.06;
+            windLeft.connect(windLeftBus);
+            windLeft.start();
+            cleanupFns.push(() => { try { windLeft.stop(); } catch(e) {} });
 
-        const windRight = Synthesis.createWind(ctx, 1100, 0.08, 0.12);
-        windRight.gain.gain.value = 0.06;
-        windRight.connect(windRightBus);
-        windRight.start();
-        cleanupFns.push(() => { try { windRight.stop(); } catch(e) {} });
+            const windRight = Synthesis.createWind(ctx, 1100, 0.08, 0.12);
+            windRight.gain.gain.value = 0.06;
+            windRight.connect(windRightBus);
+            windRight.start();
+            cleanupFns.push(() => { try { windRight.stop(); } catch(e) {} });
+        }
 
         // 2. Dust particles - very fine texture (20%)
         const dust = Synthesis.createFilteredNoise(ctx, 'white', 'highpass', 5000, 0.4);
@@ -480,7 +533,12 @@ const Zones = (function() {
         cleanupFns.push(() => faucet.stop());
 
         // 4. Wood creaking - 25-60s, a different beam each time (10%)
-        const creaks = Synthesis.scheduleCreaks(ctx, masterGain, 25, 60, 0.06, 0.7);
+        const creaks = Synthesis.createScheduler(25, 60, () => {
+            const spot = randomSpot(ctx, masterGain, 0.7, 1500);
+            if (!Samples.playOneShot(ctx, 'creak', spot, 0.06)) {
+                Synthesis.createCreak(ctx, spot, 0.06, null);
+            }
+        });
         creaks.start();
         cleanupFns.push(() => creaks.stop());
 
@@ -501,7 +559,12 @@ const Zones = (function() {
         return {
             gainNode: masterGain,
             // Welcome trigger: dry wood creak
-            trigger: () => Synthesis.createCreak(ctx, masterGain, 0.08, (Math.random() * 2 - 1) * 0.5),
+            trigger: () => {
+                const spot = randomSpot(ctx, masterGain, 0.5, 1500);
+                if (!Samples.playOneShot(ctx, 'creak', spot, 0.08)) {
+                    Synthesis.createCreak(ctx, spot, 0.08, null);
+                }
+            },
             setProximity: setProximity,
             cleanup: () => cleanupFns.forEach(fn => fn())
         };

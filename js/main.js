@@ -40,6 +40,13 @@
 
         RefugeInput.init();
 
+        // Start fetching field recordings while the visitor reads
+        // the intro - by enter time they're usually decoded.
+        // Missing files are fine: synthesis covers every slot.
+        if (typeof Samples !== 'undefined') {
+            Samples.load();
+        }
+
         // Entry button
         enterBtn.addEventListener('click', enter);
         enterBtn.addEventListener('touchend', function(e) {
@@ -106,6 +113,7 @@
             const lines = [
                 'ctx: ' + s.contextState + (s.paused ? ' (paused)' : ''),
                 'spatial: ' + s.spatial,
+                'samples: ' + (typeof Samples !== 'undefined' ? Samples.status() : 'n/a'),
                 'pos: ' + s.position.x.toFixed(2) + ', ' + s.position.y.toFixed(2),
                 'dominant: ' + (s.dominant || '-'),
                 'velocity: ' + s.velocity.toFixed(3),

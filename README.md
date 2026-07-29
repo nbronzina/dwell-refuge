@@ -2,7 +2,9 @@
 
 A climate refuge soundscape by [Heated Studio](https://heated.studio), built on the mk-dwell engine by Playground.
 
-The piece makes audible a present we haven't finished naming: the interior that holds while the outside becomes unpredictable. Everything you hear is domestic — appliances, pipes, blinds, a dripping faucet — under climate stress. No external audio files; every sound is synthesized in real time with the Web Audio API.
+The piece makes audible a present we haven't finished naming: the interior that holds while the outside becomes unpredictable. Everything you hear is domestic — appliances, pipes, blinds, a dripping faucet — under climate stress.
+
+The engine is hybrid: every sound is synthesized in real time with the Web Audio API, and key layers (rain, thunder, cicadas, wind, water, creaks, room tone) can be replaced by real CC0 field recordings dropped into `audio/` — see [audio/README.md](audio/README.md). Any missing recording falls back to its synthesized version, so the piece always works, offline included.
 
 ## The space
 
@@ -43,6 +45,7 @@ Plain HTML/CSS/JS. No frameworks, no build step, no external audio.
 | File | Role |
 |------|------|
 | `js/synthesis.js` | Reusable Web Audio building blocks: noise generators (with click-free loop seams and shared cached buffers), AM insect synthesis, appliance cycles, drips with cached impulse responses, per-zone reverb profiles, a generic event scheduler |
+| `js/samples.js` | Optional field-recording layer: manifest, background loading/decoding, a crossfading looper for un-edited recordings, one-shot pools with variant picking and rate jitter — every slot falls back to synthesis |
 | `js/zones.js` | The five zone soundscapes: layer balance, event timing, per-zone reverb, welcome triggers, visual event dispatch |
 | `js/audio.js` | Engine: distance-based zone gains, Y-axis filter/reverb/delay, temporal evolution, stillness reward, micro-drift LFOs, stereo panning, master chain (sub-bass highpass → compressor), tab pause/resume, graceful exit |
 | `js/input.js` | Mouse/touch/keyboard/gyroscope input, throttled audio updates, zone-tinted background, idle drift |

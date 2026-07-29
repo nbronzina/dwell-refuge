@@ -107,6 +107,7 @@ class MockAudioContext {
         n.buffer = null;
         n.loop = false;
         n.onended = null;
+        n.playbackRate = new MockAudioParam(1);
         n.start = function() {
             if (this.loop) {
                 liveSources.add(this);
@@ -196,10 +197,12 @@ function assert(cond, msg) {
 async function main() {
     console.log('loading modules');
     load('js/synthesis.js');
+    load('js/samples.js');
     load('js/zones.js');
     load('js/audio.js');
 
     const Synthesis = get('Synthesis');
+    const Samples = get('Samples');
     const Zones = get('Zones');
     const RefugeAudio = get('RefugeAudio');
 
@@ -210,8 +213,29 @@ async function main() {
     assert(typeof Synthesis.createRainPatter === 'function', 'Synthesis exports createRainPatter');
     assert(Array.isArray(Zones.ZONE_SOURCES) && Zones.ZONE_SOURCES.length === 5, 'five zones defined');
 
-    console.log('zone construction and cleanup');
+    console.log('field recordings layer');
     const ctx = new MockAudioContext();
+    assert(Samples.has('rain-window') === false, 'no recordings available in a bare environment');
+    await Samples.load();  // must resolve without fetch
+    assert(Samples.playOneShot(ctx, 'thunder', ctx.createGain(), 0.5) === false,
+        'one-shot returns false when missing (synthesis fallback)');
+
+    // Inject fake decoded buffers: zones built next should take the
+    // recording-backed paths for rain and thunder
+    Samples._inject('rain-window', makeBuffer(1, 44100 * 4, 44100));
+    Samples._inject('thunder', makeBuffer(1, 44100, 44100));
+    assert(Samples.has('rain-window'), 'injected recording is visible');
+    assert(Samples.playOneShot(ctx, 'thunder', ctx.createGain(), 0.5) === true,
+        'one-shot plays an available recording');
+
+    const loop = Samples.createLoop(ctx, 'rain-window');
+    assert(loop.gain && typeof loop.start === 'function' && typeof loop.stop === 'function',
+        'sample loop exposes the synthesis module interface');
+    loop.connect(ctx.createGain());
+    loop.start();
+    loop.stop();  // must clear its reschedule timer
+
+    console.log('zone construction and cleanup (rain + thunder recording-backed)');
     Zones.ZONE_SOURCES.forEach(def => {
         const dest = ctx.createGain();
         const zone = def.create(ctx, dest);

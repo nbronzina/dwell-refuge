@@ -3,7 +3,7 @@
 // Offline support and caching
 // ============================================
 
-const CACHE_NAME = 'dwell-refuge-v2';
+const CACHE_NAME = 'dwell-refuge-v3';
 const ASSETS = [
     '/',
     '/index.html',
@@ -12,10 +12,14 @@ const ASSETS = [
     '/js/audio.js',
     '/js/input.js',
     '/js/synthesis.js',
+    '/js/samples.js',
     '/js/zones.js',
     '/manifest.json',
     '/icon.svg'
 ];
+// Note: field recordings in audio/ are cached at runtime on first
+// fetch (cache-first branch below), so they work offline after the
+// first listen without breaking install when files are absent.
 
 // Install: cache all assets
 self.addEventListener('install', (event) => {
