@@ -49,7 +49,22 @@ const RefugeAudio = (function() {
     const EVOLUTION_RAMP_UP = 120;   // seconds to full intensity while dominant
     const EVOLUTION_RAMP_DOWN = 30;  // seconds to settle back after leaving
 
-    const DISTANCE_FACTOR = 12;  // Steep falloff for focused listening
+    // Spatial falloff: each zone is a place with a finite audible
+    // radius, not an infinite inverse-distance tail. Inside R_FULL
+    // you are IN the zone; between R_FULL and R_ZERO it fades with
+    // a smoothstep (arriving somewhere, not switching something);
+    // beyond R_ZERO it is silent. Corner-to-center distance is
+    // ~0.57, so from any zone's heart the others are near-silent
+    // (~3%), while the space between zones always has sound.
+    const R_FULL = 0.12;
+    const R_ZERO = 0.62;
+
+    function falloff(distance) {
+        if (distance <= R_FULL) return 1;
+        if (distance >= R_ZERO) return 0;
+        const t = (distance - R_FULL) / (R_ZERO - R_FULL);
+        return 1 - t * t * (3 - 2 * t);  // inverted smoothstep
+    }
 
     // Smoothing time constants (seconds)
     const SMOOTH = {
@@ -443,8 +458,8 @@ const RefugeAudio = (function() {
             const dy = position.y - source.y;
             const distance = Math.sqrt(dx * dx + dy * dy);
 
-            // Inverse distance attenuation with steeper falloff
-            const gain = (source.evolutionGain * stillnessBoost) / (1 + distance * DISTANCE_FACTOR);
+            // Finite-radius falloff: silent beyond R_ZERO
+            const gain = source.evolutionGain * stillnessBoost * falloff(distance);
 
             smoothParam(source.gainNode.gain, gain, SMOOTH.zoneGain);
 

@@ -268,6 +268,14 @@ async function main() {
     pumpFrames(3);
     assert(RefugeAudio.getDominantZone() === 'drought', 'bottom-right resolves to drought');
 
+    // Finite-radius falloff: from a zone's heart, distant zones are
+    // actually silent, not just quieter
+    const dbg = RefugeAudio.getDebugState();
+    const zoneGain = name => dbg.zones.find(z => z.name === name).gain;
+    assert(zoneGain('drought') > 0.3, 'near zone plays at full presence');
+    assert(zoneGain('storm') < 0.01, 'opposite-corner zone is silent');
+    assert(zoneGain('heat') < 0.01, 'adjacent-corner zone is silent');
+
     RefugeAudio.setVelocity(0.2);
     pumpFrames(3);
 
