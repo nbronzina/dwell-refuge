@@ -264,6 +264,14 @@ async function main() {
     pumpFrames(3);
     assert(RefugeAudio.getDominantZone() === 'storm', 'top-left resolves to storm');
 
+    // Region model: the whole quadrant is the zone, not just its center
+    RefugeAudio.setPosition(0.28, 0.28);
+    pumpFrames(3);
+    assert(RefugeAudio.getDominantZone() === 'storm', 'quadrant edge still resolves to storm');
+    const dbgQ = RefugeAudio.getDebugState();
+    assert(dbgQ.zones.find(z => z.name === 'storm').gain > 0.5,
+        'full presence across the region, not only at a point');
+
     RefugeAudio.setPosition(0.95, 0.95);
     pumpFrames(3);
     assert(RefugeAudio.getDominantZone() === 'drought', 'bottom-right resolves to drought');

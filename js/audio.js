@@ -49,20 +49,26 @@ const RefugeAudio = (function() {
     const EVOLUTION_RAMP_UP = 120;   // seconds to full intensity while dominant
     const EVOLUTION_RAMP_DOWN = 30;  // seconds to settle back after leaving
 
-    // Spatial falloff: each zone is a place with a finite audible
-    // radius, not an infinite inverse-distance tail. Inside R_FULL
-    // you are IN the zone; between R_FULL and R_ZERO it fades with
-    // a smoothstep (arriving somewhere, not switching something);
-    // beyond R_ZERO it is silent. Corner-to-center distance is
-    // ~0.57, so from any zone's heart the others are near-silent
-    // (~3%), while the space between zones always has sound.
-    const R_FULL = 0.12;
-    const R_ZERO = 0.62;
+    // Spatial model: each zone is a REGION (its quadrant), not a
+    // point. Anywhere inside the zone's rectangle it plays at full
+    // level - the whole room is habitable. Leaving the rectangle,
+    // the sound fades over FADE_DISTANCE with a smoothstep
+    // (arriving somewhere, not switching something) and then goes
+    // silent. Regions nearly tile the space, so crossfades live in
+    // the seams and corridors between rooms, corridors are quieter
+    // than rooms (as corridors are), and there is never dead air.
+    const FADE_DISTANCE = 0.25;
+
+    function rectDistance(px, py, rect) {
+        const dx = Math.max(rect.x0 - px, 0, px - rect.x1);
+        const dy = Math.max(rect.y0 - py, 0, py - rect.y1);
+        return Math.sqrt(dx * dx + dy * dy);
+    }
 
     function falloff(distance) {
-        if (distance <= R_FULL) return 1;
-        if (distance >= R_ZERO) return 0;
-        const t = (distance - R_FULL) / (R_ZERO - R_FULL);
+        if (distance <= 0) return 1;
+        if (distance >= FADE_DISTANCE) return 0;
+        const t = distance / FADE_DISTANCE;
         return 1 - t * t * (3 - 2 * t);  // inverted smoothstep
     }
 
@@ -285,9 +291,7 @@ const RefugeAudio = (function() {
         let minDist = Infinity;
 
         activeSources.forEach(source => {
-            const dx = position.x - source.x;
-            const dy = position.y - source.y;
-            const distance = Math.sqrt(dx * dx + dy * dy);
+            const distance = rectDistance(position.x, position.y, source.rect);
             if (distance < minDist) {
                 minDist = distance;
                 closest = source.name;
@@ -433,6 +437,9 @@ const RefugeAudio = (function() {
                 name: zoneDef.name,
                 x: zoneDef.x,
                 y: zoneDef.y,
+                rect: zoneDef.rect,
+                halfW: (zoneDef.rect.x1 - zoneDef.rect.x0) / 2,
+                halfH: (zoneDef.rect.y1 - zoneDef.rect.y0) / 2,
                 gainNode: zone.gainNode,
                 trigger: zone.trigger,
                 setProximity: zone.setProximity,
@@ -454,22 +461,26 @@ const RefugeAudio = (function() {
         const stillnessBoost = 1 + STILLNESS_GAIN_BONUS * stillness;
 
         activeSources.forEach(source => {
-            const dx = position.x - source.x;
-            const dy = position.y - source.y;
-            const distance = Math.sqrt(dx * dx + dy * dy);
+            const distance = rectDistance(position.x, position.y, source.rect);
 
-            // Finite-radius falloff: silent beyond R_ZERO
+            // Region falloff: full anywhere inside the rectangle,
+            // silent beyond the fade band
             const gain = source.evolutionGain * stillnessBoost * falloff(distance);
 
             smoothParam(source.gainNode.gain, gain, SMOOTH.zoneGain);
 
-            // Air absorption: near = full spectrum, far = muffled
-            const cutoff = Math.max(1500, 16000 / (1 + distance * 6));
+            // Air absorption: inside = full spectrum, fading = muffled
+            const absorb = Math.min(1, distance / FADE_DISTANCE);
+            const cutoff = 16000 - 13500 * absorb;
             smoothParam(source.distFilter.frequency, cutoff, SMOOTH.filter);
 
-            // Element mix shifts with the listener's spot in the room
+            // Element mix shifts with the listener's spot in the
+            // room, normalized to the region's extents (its edge = 1)
             if (source.setProximity) {
-                source.setProximity(dx / 0.5, dy / 0.5);
+                source.setProximity(
+                    (position.x - source.x) / source.halfW,
+                    (position.y - source.y) / source.halfH
+                );
             }
         });
     }

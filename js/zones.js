@@ -576,39 +576,44 @@ const Zones = (function() {
     // ZONE SOURCES ARRAY
     // ============================================
 
+    // Each zone is a REGION, not a point: the hostile climates own
+    // their quadrants out to the screen corners, the refuge holds
+    // the center. x/y is the region's center (used for stereo
+    // placement and intra-zone proximity); rect is the habitable
+    // area at full level.
     const ZONE_SOURCES = [
         {
             name: 'storm',
-            x: 0.1,
-            y: 0.1,
+            x: 0.16, y: 0.16,
+            rect: { x0: 0, y0: 0, x1: 0.32, y1: 0.32 },
             create: createStormZone,
             color: { r: 51, g: 43, b: 48 }  // #332b30 blue-ish
         },
         {
             name: 'heat',
-            x: 0.9,
-            y: 0.1,
+            x: 0.84, y: 0.16,
+            rect: { x0: 0.68, y0: 0, x1: 1, y1: 0.32 },
             create: createHeatZone,
             color: { r: 58, g: 43, b: 40 }  // #3a2b28 red-ish
         },
         {
             name: 'refuge',
-            x: 0.5,
-            y: 0.5,
+            x: 0.5, y: 0.5,
+            rect: { x0: 0.34, y0: 0.34, x1: 0.66, y1: 0.66 },
             create: createRefugeZone,
             color: { r: 51, g: 43, b: 40 }  // #332b28 neutral
         },
         {
             name: 'flood',
-            x: 0.1,
-            y: 0.9,
+            x: 0.16, y: 0.84,
+            rect: { x0: 0, y0: 0.68, x1: 0.32, y1: 1 },
             create: createFloodZone,
             color: { r: 43, g: 50, b: 48 }  // #2b3230 green-ish
         },
         {
             name: 'drought',
-            x: 0.9,
-            y: 0.9,
+            x: 0.84, y: 0.84,
+            rect: { x0: 0.68, y0: 0.68, x1: 1, y1: 1 },
             create: createDroughtZone,
             color: { r: 56, g: 50, b: 43 }  // #38322b yellow-ish
         }
