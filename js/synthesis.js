@@ -220,13 +220,23 @@ const Synthesis = (function() {
      * @param {number} maxInterval - maximum time between events (seconds)
      * @param {Function} fn - called on each event
      */
-    function createScheduler(minInterval, maxInterval, fn) {
+    function createScheduler(minInterval, maxInterval, fn, opts = {}) {
         let timeoutId = null;
         let running = false;
+        let rate = 1;  // density scalar: >1 = more frequent (stress), <1 = sparser
+        const restChance = opts.restChance || 0;
+        const restMin = opts.restMin || 30;
+        const restMax = opts.restMax || 60;
 
         function scheduleNext() {
             if (!running) return;
-            const interval = (minInterval + Math.random() * (maxInterval - minInterval)) * 1000;
+            let interval = ((minInterval + Math.random() * (maxInterval - minInterval)) /
+                Math.max(0.1, rate)) * 1000;
+            // Occasional long rest: long-form listening needs
+            // genuine gaps, not constant activity
+            if (restChance > 0 && Math.random() < restChance) {
+                interval += (restMin + Math.random() * (restMax - restMin)) * 1000;
+            }
             timeoutId = setTimeout(() => {
                 if (!running) return;
                 fn();
@@ -243,8 +253,43 @@ const Synthesis = (function() {
                 running = false;
                 if (timeoutId) clearTimeout(timeoutId);
             },
-            isRunning: () => running
+            isRunning: () => running,
+            setRate: (r) => { rate = r; }
         };
+    }
+
+    // ============================================
+    // HARMONIC ECOLOGY
+    // The house is tuned to its own infrastructure: the tonal
+    // center is 50Hz - the electrical mains hum. Each zone owns a
+    // chord of just-intonation ratios over it; pitched events snap
+    // to the nearest chord tone, so crossing zones is a harmonic
+    // modulation, not just a mix change.
+    // ============================================
+
+    const TONIC = 50;  // Hz - the mains hum is the tonic
+
+    function buildChordTable(ratios, minFreq = 30, maxFreq = 8000) {
+        const table = [];
+        for (let oct = 0; oct < 9; oct++) {
+            const base = TONIC * Math.pow(2, oct);
+            ratios.forEach(r => {
+                const f = base * r;
+                if (f >= minFreq && f <= maxFreq) table.push(f);
+            });
+        }
+        return table.sort((a, b) => a - b);
+    }
+
+    function snapFreq(freq, table) {
+        if (!table || !table.length) return freq;
+        let best = table[0];
+        let bestDiff = Infinity;
+        for (let i = 0; i < table.length; i++) {
+            const d = Math.abs(Math.log(table[i] / freq));
+            if (d < bestDiff) { bestDiff = d; best = table[i]; }
+        }
+        return best;
     }
 
     /**
@@ -781,6 +826,7 @@ const Synthesis = (function() {
         let cycleTimeout = null;
         let isOn = false;
         let isRunning = false;
+        let stress = 0;  // 0-1: strained appliances short-cycle
 
         function cycle() {
             if (!isRunning) return;
@@ -789,13 +835,13 @@ const Synthesis = (function() {
                 // Turn off with fade
                 outputGain.gain.setTargetAtTime(0, ctx.currentTime, 0.5);
                 isOn = false;
-                const nextOff = (offTime * 0.5 + Math.random() * offTime) * 1000;
+                const nextOff = (offTime * 0.5 + Math.random() * offTime) * 1000 / (1 + stress);
                 cycleTimeout = setTimeout(cycle, nextOff);
             } else {
                 // Turn on with fade
                 outputGain.gain.setTargetAtTime(0.08, ctx.currentTime, 0.3);
                 isOn = true;
-                const nextOn = (onTime * 0.8 + Math.random() * onTime * 0.4) * 1000;
+                const nextOn = (onTime * 0.8 + Math.random() * onTime * 0.4) * 1000 / (1 + stress * 1.5);
                 cycleTimeout = setTimeout(cycle, nextOn);
             }
         }
@@ -817,7 +863,14 @@ const Synthesis = (function() {
                 try { osc2.stop(); } catch(e) {}
                 try { noise.stop(); } catch(e) {}
             },
-            connect: (dest) => outputGain.connect(dest)
+            connect: (dest) => outputGain.connect(dest),
+            // Stress: shorter cycles (working harder for less) and
+            // a slight sag in pitch, as under brownout
+            setStress: (s) => {
+                stress = s;
+                osc.frequency.setTargetAtTime(baseFreq * (1 - 0.02 * s), ctx.currentTime, 2);
+                osc2.frequency.setTargetAtTime(baseFreq * 2.02 * (1 - 0.02 * s), ctx.currentTime, 2);
+            }
         };
     }
 
@@ -845,9 +898,9 @@ const Synthesis = (function() {
     /**
      * Fire a single drip into pre-built dry/wet destinations
      */
-    function triggerDrip(ctx, dryDest, wetDest, type, gain) {
+    function triggerDrip(ctx, dryDest, wetDest, type, gain, table) {
         const profile = DRIP_PROFILES[type] || DRIP_PROFILES.room;
-        const freq = profile.freqBase + Math.random() * profile.freqRange;
+        const freq = snapFreq(profile.freqBase + Math.random() * profile.freqRange, table);
         const duration = profile.duration;
 
         const osc = ctx.createOscillator();
@@ -883,7 +936,7 @@ const Synthesis = (function() {
      * Create drip with specific reverb character (one-off)
      * @param {string} type - 'metal' (bucket), 'tile' (bathroom), 'room' (general)
      */
-    function createDripWithReverb(ctx, destination, type = 'room', gain = 0.15) {
+    function createDripWithReverb(ctx, destination, type = 'room', gain = 0.15, table = null) {
         const profile = DRIP_PROFILES[type] || DRIP_PROFILES.room;
 
         const reverb = ctx.createConvolver();
@@ -899,7 +952,7 @@ const Synthesis = (function() {
         reverbGain.connect(destination);
         dry.connect(destination);
 
-        const osc = triggerDrip(ctx, dry, reverb, type, gain);
+        const osc = triggerDrip(ctx, dry, reverb, type, gain, table);
 
         // Detach the one-off reverb chain once the tail has rung out
         setTimeout(() => {
@@ -915,7 +968,7 @@ const Synthesis = (function() {
      * Schedule drips sharing one persistent reverb chain
      * (avoids building a ConvolverNode per drip)
      */
-    function scheduleDripsWithReverb(ctx, destination, minInterval, maxInterval, type = 'room', gain = 0.15) {
+    function scheduleDripsWithReverb(ctx, destination, minInterval, maxInterval, type = 'room', gain = 0.15, opts = {}) {
         const profile = DRIP_PROFILES[type] || DRIP_PROFILES.room;
 
         const reverb = ctx.createConvolver();
@@ -932,11 +985,12 @@ const Synthesis = (function() {
         dry.connect(destination);
 
         const scheduler = createScheduler(minInterval, maxInterval, () => {
-            triggerDrip(ctx, dry, reverb, type, gain);
-        });
+            triggerDrip(ctx, dry, reverb, type, gain, opts.table);
+        }, opts);
 
         return {
             start: scheduler.start,
+            setRate: scheduler.setRate,
             stop: () => {
                 scheduler.stop();
                 try { reverb.disconnect(); } catch(e) {}
@@ -986,7 +1040,13 @@ const Synthesis = (function() {
                 try { osc.stop(); } catch(e) {}
                 try { lfo.stop(); } catch(e) {}
             },
-            connect: (dest) => outputGain.connect(dest)
+            connect: (dest) => outputGain.connect(dest),
+            // Strain: the motor wobbles harder and sags flat -
+            // familiar machinery going subtly wrong under load
+            setStrain: (s) => {
+                lfoGain.gain.setTargetAtTime(wobbleDepth * (1 + s * 3), ctx.currentTime, 0.5);
+                osc.frequency.setTargetAtTime(freq * (1 - 0.035 * s), ctx.currentTime, 1.5);
+            }
         };
     }
 
@@ -1035,9 +1095,9 @@ const Synthesis = (function() {
      * Create wood/material creak sound
      * @param {number|null} pan - fixed stereo position, or null for center
      */
-    function createCreak(ctx, destination, gain = 0.1, pan = null) {
+    function createCreak(ctx, destination, gain = 0.1, pan = null, table = null) {
         const duration = 0.1 + Math.random() * 0.15;
-        const freq = 150 + Math.random() * 200;
+        const freq = snapFreq(150 + Math.random() * 200, table);
 
         const osc = ctx.createOscillator();
         const filter = ctx.createBiquadFilter();
@@ -1141,12 +1201,132 @@ const Synthesis = (function() {
     }
 
     // ============================================
+    // THE RADIO
+    // The one aperture through which the outside enters the
+    // refuge: an occasional news bulletin, fully synthesized,
+    // never intelligible - the cadence is the message. Heard
+    // through a small tinny speaker, per the lo-fi rule: full
+    // fidelity reads as narration and breaks the piece.
+    // ============================================
+
+    function createRadio(ctx) {
+        // Small-speaker chain: thin, boxy, slightly honky
+        const hp = ctx.createBiquadFilter();
+        hp.type = 'highpass';
+        hp.frequency.value = 280;
+        const lp = ctx.createBiquadFilter();
+        lp.type = 'lowpass';
+        lp.frequency.value = 3000;
+        lp.Q.value = 0.7;
+        const tin = ctx.createBiquadFilter();
+        tin.type = 'peaking';
+        tin.frequency.value = 1800;
+        tin.gain.value = 4;
+        tin.Q.value = 1.2;
+        const out = ctx.createGain();
+        out.gain.value = 1;
+
+        hp.connect(lp);
+        lp.connect(tin);
+        tin.connect(out);
+
+        let active = false;
+
+        // Two-tone news sting on tonic + fifth
+        function chime(when) {
+            [TONIC * 8, TONIC * 12].forEach((f, i) => {
+                const o = ctx.createOscillator();
+                const g = ctx.createGain();
+                o.type = 'sine';
+                o.frequency.value = f;
+                const t = when + i * 0.45;
+                g.gain.setValueAtTime(0, t);
+                g.gain.linearRampToValueAtTime(0.5, t + 0.02);
+                g.gain.exponentialRampToValueAtTime(0.001, t + 0.9);
+                o.connect(g);
+                g.connect(hp);
+                o.start(t);
+                o.stop(t + 1);
+            });
+        }
+
+        function playBulletin(duration = 24) {
+            if (active) return false;
+            active = true;
+
+            const start = ctx.currentTime + 0.1;
+            chime(start);
+            const speechStart = start + 1.6;
+            const end = speechStart + duration;
+
+            // Speech-shaped babble: pink noise through two wandering
+            // formants, gated by syllable and sentence rhythm
+            const noise = ctx.createBufferSource();
+            noise.buffer = getNoiseBuffer(ctx, 'pink', 2);
+            noise.loop = true;
+            const f1 = ctx.createBiquadFilter();
+            f1.type = 'bandpass';
+            f1.Q.value = 6;
+            const f2 = ctx.createBiquadFilter();
+            f2.type = 'bandpass';
+            f2.Q.value = 8;
+            const vg = ctx.createGain();
+            vg.gain.value = 0;
+
+            noise.connect(f1);
+            noise.connect(f2);
+            f1.connect(vg);
+            f2.connect(vg);
+            vg.connect(hp);
+
+            // Schedule the whole bulletin's prosody upfront
+            let t = speechStart;
+            let sentenceLeft = 4 + Math.floor(Math.random() * 6);
+            while (t < end) {
+                const syl = 0.09 + Math.random() * 0.16;
+                const level = 0.5 + Math.random() * 0.5;
+                vg.gain.setTargetAtTime(0.35 * level, t, 0.02);
+                vg.gain.setTargetAtTime(0.0001, t + syl * 0.7, 0.03);
+                f1.frequency.setValueAtTime(350 + Math.random() * 450, t);
+                f2.frequency.setValueAtTime(1100 + Math.random() * 1400, t);
+                t += syl + 0.03 + Math.random() * 0.09;
+                if (--sentenceLeft <= 0) {
+                    t += 0.35 + Math.random() * 0.6;  // announcer's breath
+                    sentenceLeft = 4 + Math.floor(Math.random() * 8);
+                }
+            }
+
+            noise.start(speechStart);
+            noise.stop(end + 0.5);
+            noise.onended = () => {
+                try { f1.disconnect(); } catch(e) {}
+                try { f2.disconnect(); } catch(e) {}
+                try { vg.disconnect(); } catch(e) {}
+                active = false;
+            };
+            return true;
+        }
+
+        return {
+            gain: out,
+            connect: dest => out.connect(dest),
+            playBulletin: playBulletin,
+            isActive: () => active,
+            stop: () => { try { out.disconnect(); } catch(e) {} }
+        };
+    }
+
+    // ============================================
     // PUBLIC API
     // ============================================
 
     return {
         resetSeed,
         createScheduler,
+        TONIC,
+        buildChordTable,
+        snapFreq,
+        createRadio,
         createPinkNoiseBuffer,
         createWhiteNoiseBuffer,
         createFilteredNoise,

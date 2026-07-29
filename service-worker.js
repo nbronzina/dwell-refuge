@@ -3,10 +3,11 @@
 // Offline support and caching
 // ============================================
 
-const CACHE_NAME = 'dwell-refuge-v3';
+const CACHE_NAME = 'dwell-refuge-v4';
 const ASSETS = [
     '/',
     '/index.html',
+    '/how.html',
     '/css/style.css',
     '/js/main.js',
     '/js/audio.js',

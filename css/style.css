@@ -112,6 +112,67 @@ html, body {
     letter-spacing: 0.12em;
 }
 
+.entry-link {
+    color: var(--heated-text-dim);
+    text-decoration: underline;
+    text-underline-offset: 3px;
+    transition: color 0.2s ease;
+}
+
+.entry-link:hover {
+    color: var(--heated-accent);
+}
+
+/* Method page (how.html) */
+.doc-page {
+    max-width: 560px;
+    margin: 0 auto;
+    padding: 4rem 2rem;
+    height: 100%;
+    overflow-y: auto;
+    box-sizing: border-box;
+}
+
+.doc-page h1 {
+    font-size: 1.3rem;
+    font-weight: 300;
+    letter-spacing: 0.08em;
+    margin-bottom: 2rem;
+}
+
+.doc-page h2 {
+    font-size: 0.85rem;
+    font-weight: 400;
+    color: var(--heated-accent);
+    letter-spacing: 0.12em;
+    margin: 2.2rem 0 0.8rem;
+}
+
+.doc-page p, .doc-page li {
+    font-size: 0.88rem;
+    font-weight: 300;
+    line-height: 1.7;
+    opacity: 0.85;
+    margin-bottom: 1rem;
+}
+
+.doc-page ul {
+    padding-left: 1.2rem;
+}
+
+.doc-page a {
+    color: var(--heated-accent-dim);
+}
+
+.doc-page a:hover {
+    color: var(--heated-accent);
+}
+
+body.doc {
+    overflow-y: auto;
+    cursor: default;
+}
+
 .entry-credit {
     position: absolute;
     bottom: 1.5rem;

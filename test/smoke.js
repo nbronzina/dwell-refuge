@@ -213,6 +213,21 @@ async function main() {
     assert(typeof Synthesis.createRainPatter === 'function', 'Synthesis exports createRainPatter');
     assert(Array.isArray(Zones.ZONE_SOURCES) && Zones.ZONE_SOURCES.length === 5, 'five zones defined');
 
+    console.log('harmonic ecology and radio');
+    const fifthTable = Synthesis.buildChordTable([1, 3 / 2]);
+    assert(Synthesis.snapFreq(160, fifthTable) === 150,
+        'snapFreq lands on the nearest chord tone (150 = 50Hz tonic x 3)');
+    const sched = Synthesis.createScheduler(1, 2, () => {});
+    assert(typeof sched.setRate === 'function', 'schedulers expose a rate scalar');
+    {
+        const rctx = new MockAudioContext();
+        const radio = Synthesis.createRadio(rctx);
+        radio.connect(rctx.createGain());
+        assert(radio.playBulletin(2) === true, 'radio bulletin schedules without throwing');
+        assert(radio.isActive() === true, 'radio reports active during bulletin');
+        radio.stop();
+    }
+
     console.log('field recordings layer');
     const ctx = new MockAudioContext();
     assert(Samples.has('rain-window') === false, 'no recordings available in a bare environment');
@@ -245,8 +260,11 @@ async function main() {
             def.name + ': has a welcome trigger');
         assert(typeof zone.setProximity === 'function',
             def.name + ': has intra-zone proximity mixing');
+        assert(typeof zone.setStress === 'function',
+            def.name + ': has a stress macro');
         zone.trigger();             // must not throw
         zone.setProximity(0.6, -0.4);  // must not throw
+        zone.setStress(0.7);           // must not throw
         zone.cleanup();
     });
     assert(liveSources.size === 0, 'no live sources after all zone cleanups');

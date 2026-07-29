@@ -46,8 +46,24 @@ const RefugeAudio = (function() {
         drought: 0.7,
         refuge: 0.22
     };
-    const EVOLUTION_RAMP_UP = 120;   // seconds to full intensity while dominant
-    const EVOLUTION_RAMP_DOWN = 30;  // seconds to settle back after leaving
+    // Evolution is an ARC, not a ramp: intensify while dwelling,
+    // hold, then recede to a settled state below peak - long-form
+    // listening needs the recession half (restraint as system)
+    const EVOLUTION_RAMP_UP = 120;   // rise to full intensity
+    const EVOLUTION_HOLD = 120;      // plateau at peak
+    const EVOLUTION_RECEDE = 240;    // then settle down...
+    const EVOLUTION_FLOOR = 0.35;    // ...to this fraction of peak
+    const EVOLUTION_RAMP_DOWN = 30;  // decay after leaving the zone
+
+    function evolutionArc(t) {
+        if (t <= EVOLUTION_RAMP_UP) return t / EVOLUTION_RAMP_UP;
+        const t2 = t - EVOLUTION_RAMP_UP;
+        if (t2 <= EVOLUTION_HOLD) return 1;
+        const t3 = t2 - EVOLUTION_HOLD;
+        if (t3 >= EVOLUTION_RECEDE) return EVOLUTION_FLOOR;
+        const k = t3 / EVOLUTION_RECEDE;
+        return 1 - (1 - EVOLUTION_FLOOR) * (k * k * (3 - 2 * k));
+    }
 
     // Spatial model: each zone is a REGION (its quadrant), not a
     // point. Anywhere inside the zone's rectangle it plays at full
@@ -99,6 +115,9 @@ const RefugeAudio = (function() {
 
     // Micro-drift LFOs
     let microDrifts = [];
+
+    // Corridor bed (audible only in the seams between zones)
+    let hallway = null;
 
     let visibilityHooked = false;
 
@@ -309,16 +328,28 @@ const RefugeAudio = (function() {
             scheduleWelcomeEvent(dominantZone);
         }
 
-        // Dominant zone intensifies; the others settle back to base
+        // Dominant zone follows its arc; the others settle back
         activeSources.forEach(source => {
             if (source.name === dominantZone) {
-                source.evolutionFactor = Math.min(1, source.evolutionFactor + deltaTime / EVOLUTION_RAMP_UP);
+                source.dwellTime += deltaTime;
             } else {
-                source.evolutionFactor = Math.max(0, source.evolutionFactor - deltaTime / EVOLUTION_RAMP_DOWN);
+                // Leaving unwinds dwell time quickly (~30s from peak)
+                source.dwellTime = Math.max(0,
+                    source.dwellTime - deltaTime * (EVOLUTION_RAMP_UP / EVOLUTION_RAMP_DOWN));
             }
 
+            const factor = evolutionArc(source.dwellTime);
+            source.evolutionFactor = factor;
+
             const target = EVOLUTION_TARGETS[source.name] || source.maxGain;
-            source.evolutionGain = lerp(source.maxGain, target, source.evolutionFactor);
+            source.evolutionGain = lerp(source.maxGain, target, factor);
+
+            // Stress corrupts, not just amplifies: the zone's own
+            // machinery goes subtly wrong as intensity rises
+            if (source.setStress && Math.abs(factor - source.lastStress) > 0.02) {
+                source.lastStress = factor;
+                source.setStress(factor);
+            }
         });
     }
 
@@ -443,14 +474,33 @@ const RefugeAudio = (function() {
                 gainNode: zone.gainNode,
                 trigger: zone.trigger,
                 setProximity: zone.setProximity,
+                setStress: zone.setStress,
                 cleanup: zone.cleanup,
                 output: zoneOut,
                 distFilter: distFilter,
                 maxGain: maxGain,
                 evolutionGain: maxGain,
-                evolutionFactor: 0
+                evolutionFactor: 0,
+                dwellTime: 0,
+                lastStress: 0
             });
         });
+
+        // The corridor between rooms: a neutral hallway presence
+        // audible only in the seams, so crossing zones sounds like
+        // moving through the house rather than between audio files
+        hallway = {
+            gain: audioContext.createGain(),
+            tone: Synthesis.createRoomTone(audioContext, Synthesis.TONIC, 0.03),
+            noise: Synthesis.createFilteredNoise(audioContext, 'pink', 'lowpass', 240, 0.4)
+        };
+        hallway.gain.gain.value = 0;
+        hallway.gain.connect(filterNode);
+        hallway.tone.connect(hallway.gain);
+        hallway.noise.gain.gain.value = 0.02;
+        hallway.noise.connect(hallway.gain);
+        hallway.tone.start();
+        hallway.noise.start();
 
         // Setup micro-drifts on master parameters
         setupMicroDrifts();
@@ -460,18 +510,24 @@ const RefugeAudio = (function() {
         // Stillness slightly lifts everything - detail as reward
         const stillnessBoost = 1 + STILLNESS_GAIN_BONUS * stillness;
 
+        let maxFalloff = 0;
+
         activeSources.forEach(source => {
             const distance = rectDistance(position.x, position.y, source.rect);
 
             // Region falloff: full anywhere inside the rectangle,
             // silent beyond the fade band
-            const gain = source.evolutionGain * stillnessBoost * falloff(distance);
+            const fall = falloff(distance);
+            if (fall > maxFalloff) maxFalloff = fall;
+            const gain = source.evolutionGain * stillnessBoost * fall;
 
             smoothParam(source.gainNode.gain, gain, SMOOTH.zoneGain);
 
-            // Air absorption: inside = full spectrum, fading = muffled
+            // Through the wall: inside a room the zone is full
+            // spectrum; from the corridor it is heard as through
+            // drywall (heavy lowpass, not gentle air absorption)
             const absorb = Math.min(1, distance / FADE_DISTANCE);
-            const cutoff = 16000 - 13500 * absorb;
+            const cutoff = 16000 - (16000 - 550) * absorb;
             smoothParam(source.distFilter.frequency, cutoff, SMOOTH.filter);
 
             // Element mix shifts with the listener's spot in the
@@ -483,6 +539,11 @@ const RefugeAudio = (function() {
                 );
             }
         });
+
+        // The hallway exists only where no room does
+        if (hallway) {
+            smoothParam(hallway.gain.gain, (1 - maxFalloff) * 0.8, SMOOTH.zoneGain);
+        }
     }
 
     // ============================================
@@ -561,6 +622,13 @@ const RefugeAudio = (function() {
             }
         });
         activeSources = [];
+
+        if (hallway) {
+            try { hallway.tone.stop(); } catch(e) {}
+            try { hallway.noise.stop(); } catch(e) {}
+            try { hallway.gain.disconnect(); } catch(e) {}
+            hallway = null;
+        }
 
         lastDominantZone = null;
         lastEvolutionUpdate = 0;

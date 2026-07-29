@@ -20,6 +20,36 @@ const Zones = (function() {
         return Math.min(hi, Math.max(lo, v));
     }
 
+    // Harmonic ecology: each zone owns a just-intonation chord over
+    // the 50Hz mains-hum tonic; pitched events snap to chord tones
+    const CHORDS = {
+        storm:   Synthesis.buildChordTable([1, 6/5, 3/2]),   // minor triad
+        heat:    Synthesis.buildChordTable([1, 5/4, 3/2]),   // major triad
+        refuge:  Synthesis.buildChordTable([1, 3/2, 2]),     // open fifth
+        flood:   Synthesis.buildChordTable([1, 4/3, 3/2]),   // sus4
+        drought: Synthesis.buildChordTable([1, 9/8, 3/2])    // sus2
+    };
+
+    /**
+     * Feed-forward ducking: when a salient one-shot fires, the
+     * zone's continuous beds step back 2-4dB and recover slowly -
+     * the room makes space for the event
+     */
+    function makeDucker(ctx) {
+        const beds = [];
+        return {
+            register: (param, base) => beds.push({ param: param, base: base }),
+            duck: (db) => {
+                const f = Math.pow(10, -(db || 3) / 20);
+                const now = ctx.currentTime;
+                beds.forEach(b => {
+                    b.param.setTargetAtTime(b.base * f, now, 0.15);
+                    b.param.setTargetAtTime(b.base, now + 0.9, 1.2);
+                });
+            }
+        };
+    }
+
     /**
      * An element bus: a gain (for proximity mixing) feeding a fixed
      * stereo position. Connect an element to the returned gain node;
@@ -71,6 +101,7 @@ const Zones = (function() {
         const cleanupFns = [];
         let disposed = false;
         cleanupFns.push(() => { disposed = true; });
+        const ducker = makeDucker(ctx);
 
         // Element placement
         const rainBus = createBus(ctx, masterGain, -0.4);    // the window, left
@@ -86,12 +117,14 @@ const Zones = (function() {
             rain.connect(rainBus);
             rain.start();
             cleanupFns.push(() => rain.stop());
+            ducker.register(rain.gain.gain, 0.18);
         } else {
             const rainOnGlass = Synthesis.createFilteredNoise(ctx, 'pink', 'bandpass', 1800, 1.2);
             rainOnGlass.gain.gain.value = 0.18;
             rainOnGlass.connect(rainBus);
             rainOnGlass.start();
             cleanupFns.push(() => { try { rainOnGlass.stop(); } catch(e) {} });
+            ducker.register(rainOnGlass.gain.gain, 0.18);
 
             // Rain intensity modulation (gusts)
             const rainLfo = ctx.createOscillator();
@@ -110,8 +143,10 @@ const Zones = (function() {
             cleanupFns.push(() => patter.stop());
         }
 
-        // 2. Interior leak - distinctive drip, semi-regular 2-4s (25%)
-        const leak = Synthesis.scheduleDripsWithReverb(ctx, leakBus, 2, 4, 'room', 0.15);
+        // 2. Interior leak - distinctive drip, semi-regular 2-4s,
+        // tuned to the zone's chord, with genuine rests (25%)
+        const leak = Synthesis.scheduleDripsWithReverb(ctx, leakBus, 2, 4, 'room', 0.15,
+            { table: CHORDS.storm, restChance: 0.12, restMin: 25, restMax: 50 });
         leak.start();
         cleanupFns.push(() => leak.stop());
 
@@ -125,6 +160,8 @@ const Zones = (function() {
         // 4. Thunder + glass vibration - 15-45 seconds (5%)
         function thunderEvent() {
             if (disposed) return;
+            // The room makes space for the thunder
+            ducker.duck(3.5);
             // Real thunder recording if present, synthesized otherwise
             if (!Samples.playOneShot(ctx, 'thunder', outsideBus, 0.5)) {
                 Synthesis.createThunder(ctx, outsideBus, 0.5);
@@ -152,10 +189,18 @@ const Zones = (function() {
             leakBus.gain.setTargetAtTime(1 - toWindow * 0.35, now, 0.25);
         }
 
+        // Stress: the storm tightens - leak drips faster, blinds
+        // rattle more often (loudness is handled by evolution gain)
+        function setStress(s) {
+            leak.setRate(1 + s * 0.8);
+            blindScheduler.setRate(1 + s * 0.5);
+        }
+
         return {
             gainNode: masterGain,
             trigger: thunderEvent,
             setProximity: setProximity,
+            setStress: setStress,
             cleanup: () => cleanupFns.forEach(fn => fn())
         };
     }
@@ -199,7 +244,8 @@ const Zones = (function() {
         cleanupFns.push(() => { try { acCompressor.stop(); } catch(e) {} });
 
         // 2. Fridge cycling - distinctive event (30%)
-        const fridge = Synthesis.createApplianceCycle(ctx, 85, 40, 90);
+        // Tuned to 75Hz: a just fifth over the 50Hz mains tonic
+        const fridge = Synthesis.createApplianceCycle(ctx, 75, 40, 90);
         fridge.connect(kitchenBus);
         fridge.start();
         cleanupFns.push(() => fridge.stop());
@@ -256,10 +302,19 @@ const Zones = (function() {
             kitchenBus.gain.setTargetAtTime(1 + d * 0.3, now, 0.25);
         }
 
+        // Stress: the machines lose the fight - the AC compressor
+        // wobbles and sags, the fridge short-cycles under brownout
+        function setStress(s) {
+            acCompressor.setStrain(s);
+            fridge.setStress(s);
+            fan.setStrain(s * 0.5);
+        }
+
         return {
             gainNode: masterGain,
             trigger: cicadaSwell,
             setProximity: setProximity,
+            setStress: setStress,
             cleanup: () => cleanupFns.forEach(fn => fn())
         };
     }
@@ -292,7 +347,8 @@ const Zones = (function() {
             roomTone = Samples.createLoop(ctx, 'room-tone');
             roomTone.gain.gain.value = 0.05;
         } else {
-            roomTone = Synthesis.createRoomTone(ctx, 55, 0.035);
+            // Tuned to the 50Hz mains tonic - the house's keynote
+            roomTone = Synthesis.createRoomTone(ctx, 50, 0.035);
         }
         roomTone.connect(masterGain);
         roomTone.start();
@@ -316,7 +372,7 @@ const Zones = (function() {
             const osc = ctx.createOscillator();
             const g = ctx.createGain();
             osc.type = 'sine';
-            osc.frequency.value = 70 + Math.random() * 30;
+            osc.frequency.value = Synthesis.snapFreq(70 + Math.random() * 30, CHORDS.refuge);
             g.gain.setValueAtTime(0, ctx.currentTime);
             g.gain.linearRampToValueAtTime(0.008, ctx.currentTime + 0.05);
             g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.15);
@@ -330,6 +386,28 @@ const Zones = (function() {
         ambientScheduler.start();
         cleanupFns.push(() => ambientScheduler.stop());
 
+        // 5. The radio - the one aperture through which the outside
+        // enters the refuge. An occasional news bulletin, faint and
+        // unintelligible; the cadence timestamps the world.
+        const radio = Synthesis.createRadio(ctx);
+        const radioBus = createBus(ctx, masterGain, -0.25);  // on a shelf, left
+        radio.gain.gain.value = 0.05;
+        radio.connect(radioBus);
+        cleanupFns.push(() => radio.stop());
+
+        // First bulletin ~90s in, so first visitors encounter it;
+        // then every 4-7 minutes (hourly, in the fiction's time)
+        const firstBulletin = setTimeout(() => {
+            radio.playBulletin(18 + Math.random() * 10);
+        }, 90000);
+        cleanupFns.push(() => clearTimeout(firstBulletin));
+
+        const bulletinScheduler = Synthesis.createScheduler(240, 420, () => {
+            radio.playBulletin(18 + Math.random() * 14);
+        });
+        bulletinScheduler.start();
+        cleanupFns.push(() => bulletinScheduler.stop());
+
         // Barely there: drifting right leans toward the vent
         function setProximity(dx, dy) {
             const d = clamp(dx, -1, 1);
@@ -342,6 +420,7 @@ const Zones = (function() {
             gainNode: masterGain,
             trigger: settlingTick,
             setProximity: setProximity,
+            setStress: function() {},  // the refuge settles via evolution gain alone
             cleanup: () => cleanupFns.forEach(fn => fn())
         };
     }
@@ -363,6 +442,7 @@ const Zones = (function() {
         zoneReverb.connect(destination);
 
         const cleanupFns = [];
+        const ducker = makeDucker(ctx);
 
         // Element placement
         const pipesBus = createBus(ctx, masterGain, -0.5);   // wall pipes, left
@@ -377,12 +457,14 @@ const Zones = (function() {
             pipes.connect(pipesBus);
             pipes.start();
             cleanupFns.push(() => pipes.stop());
+            ducker.register(pipes.gain.gain, 0.1);
         } else {
             const pipes = Synthesis.createFilteredNoise(ctx, 'pink', 'bandpass', 350, 2);
             pipes.gain.gain.value = 0.1;
             pipes.connect(pipesBus);
             pipes.start();
             cleanupFns.push(() => { try { pipes.stop(); } catch(e) {} });
+            ducker.register(pipes.gain.gain, 0.1);
 
             // Pipe modulation - irregular flow
             const pipeLfo = ctx.createOscillator();
@@ -396,8 +478,9 @@ const Zones = (function() {
             cleanupFns.push(() => { try { pipeLfo.stop(); } catch(e) {} });
         }
 
-        // 2. Drip into bucket - metallic, 1.5-3s, urgent (30%)
-        const bucketDrip = Synthesis.scheduleDripsWithReverb(ctx, bucketBus, 1.5, 3, 'metal', 0.18);
+        // 2. Drip into bucket - metallic, 1.5-3s, urgent, tuned (30%)
+        const bucketDrip = Synthesis.scheduleDripsWithReverb(ctx, bucketBus, 1.5, 3, 'metal', 0.18,
+            { table: CHORDS.flood, restChance: 0.1, restMin: 20, restMax: 45 });
         bucketDrip.start();
         cleanupFns.push(() => bucketDrip.stop());
 
@@ -416,6 +499,7 @@ const Zones = (function() {
 
         // 4. Floating objects bumping - 15-45s, from anywhere (7%)
         const floatingScheduler = Synthesis.createScheduler(15, 45, () => {
+            ducker.duck(3);
             Synthesis.createNoiseBurst(ctx, randomSpot(ctx, masterGain, 0.7, 800),
                 100 + Math.random() * 60, 0.12, 7);
         });
@@ -456,11 +540,21 @@ const Zones = (function() {
             bucketBus.gain.setTargetAtTime(1 + d * 0.3, now, 0.25);
         }
 
+        // Stress: the water rises - drips faster, pump works harder
+        // and more often, more debris knocking about
+        function setStress(s) {
+            bucketDrip.setRate(1 + s);
+            pump.setStress(s);
+            pumpVibration.setStrain(s);
+            floatingScheduler.setRate(1 + s * 0.6);
+        }
+
         return {
             gainNode: masterGain,
             // Welcome trigger: a distinctive drip into the bucket
-            trigger: () => Synthesis.createDripWithReverb(ctx, bucketBus, 'metal', 0.2),
+            trigger: () => Synthesis.createDripWithReverb(ctx, bucketBus, 'metal', 0.2, CHORDS.flood),
             setProximity: setProximity,
+            setStress: setStress,
             cleanup: () => cleanupFns.forEach(fn => fn())
         };
     }
@@ -482,6 +576,7 @@ const Zones = (function() {
         zoneReverb.connect(destination);
 
         const cleanupFns = [];
+        const ducker = makeDucker(ctx);
 
         // Element placement
         const windLeftBus = createBus(ctx, masterGain, -0.5);
@@ -497,18 +592,21 @@ const Zones = (function() {
             wind.connect(masterGain);
             wind.start();
             cleanupFns.push(() => wind.stop());
+            ducker.register(wind.gain.gain, 0.1);
         } else {
             const windLeft = Synthesis.createWind(ctx, 1200, 0.05, 0.12);
             windLeft.gain.gain.value = 0.06;
             windLeft.connect(windLeftBus);
             windLeft.start();
             cleanupFns.push(() => { try { windLeft.stop(); } catch(e) {} });
+            ducker.register(windLeft.gain.gain, 0.06);
 
             const windRight = Synthesis.createWind(ctx, 1100, 0.08, 0.12);
             windRight.gain.gain.value = 0.06;
             windRight.connect(windRightBus);
             windRight.start();
             cleanupFns.push(() => { try { windRight.stop(); } catch(e) {} });
+            ducker.register(windRight.gain.gain, 0.06);
         }
 
         // 2. Dust particles - very fine texture (20%)
@@ -529,18 +627,20 @@ const Zones = (function() {
         dustLfo.start();
         cleanupFns.push(() => { try { dustLfo.stop(); } catch(e) {} });
 
-        // 3. Dripping faucet - 5-10 seconds (scarcity) (20%)
-        const faucet = Synthesis.scheduleDripsWithReverb(ctx, faucetBus, 5, 10, 'tile', 0.12);
+        // 3. Dripping faucet - 5-10 seconds (scarcity), tuned (20%)
+        const faucet = Synthesis.scheduleDripsWithReverb(ctx, faucetBus, 5, 10, 'tile', 0.12,
+            { table: CHORDS.drought, restChance: 0.15, restMin: 30, restMax: 70 });
         faucet.start();
         cleanupFns.push(() => faucet.stop());
 
         // 4. Wood creaking - 25-60s, a different beam each time (10%)
         const creaks = Synthesis.createScheduler(25, 60, () => {
+            ducker.duck(2.5);
             const spot = randomSpot(ctx, masterGain, 0.7, 1500);
             if (!Samples.playOneShot(ctx, 'creak', spot, 0.06)) {
-                Synthesis.createCreak(ctx, spot, 0.06, null);
+                Synthesis.createCreak(ctx, spot, 0.06, null, CHORDS.drought);
             }
-        });
+        }, { restChance: 0.15, restMin: 40, restMax: 90 });
         creaks.start();
         cleanupFns.push(() => creaks.stop());
 
@@ -558,16 +658,24 @@ const Zones = (function() {
             windLeftBus.gain.setTargetAtTime(1 - d * 0.2, now, 0.25);
         }
 
+        // Stress: everything dries further - the wood complains
+        // more, the faucet gives LESS (scarcity deepens)
+        function setStress(s) {
+            creaks.setRate(1 + s * 0.8);
+            faucet.setRate(1 / (1 + s));
+        }
+
         return {
             gainNode: masterGain,
             // Welcome trigger: dry wood creak
             trigger: () => {
                 const spot = randomSpot(ctx, masterGain, 0.5, 1500);
                 if (!Samples.playOneShot(ctx, 'creak', spot, 0.08)) {
-                    Synthesis.createCreak(ctx, spot, 0.08, null);
+                    Synthesis.createCreak(ctx, spot, 0.08, null, CHORDS.drought);
                 }
             },
             setProximity: setProximity,
+            setStress: setStress,
             cleanup: () => cleanupFns.forEach(fn => fn())
         };
     }

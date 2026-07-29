@@ -31,7 +31,7 @@ Each zone is a room, not a point — spatially and acoustically. Each hostile cl
 ## Interactions
 
 - **Move** (mouse, touch, arrow keys, or device tilt on mobile) to travel between zones. The Y axis controls depth: bright and present at the top, muffled and distant at the bottom.
-- **Stay** in a zone and it evolves — hostile zones intensify over ~2 minutes; the refuge settles even calmer.
+- **Stay** in a zone and it evolves — not louder, but *wronger*: the AC sags and short-cycles, drips tighten, the faucet gives less. After a few minutes it settles again below its peak (chronic, not acute). Somewhere in the refuge, a radio occasionally airs an unintelligible news bulletin. Every pitched sound is tuned to a just-intonation chord over 50Hz — the mains hum is the house's tonic — so crossing rooms is also a harmonic modulation, and the seams between rooms carry a neutral hallway presence with the neighbors muffled as through a wall.
 - **Be still** and the space rewards you: the filter opens and detail emerges.
 - **Walk away** and after 90 seconds the weather comes to you — your position drifts slowly toward the nearest hostile zone.
 - **Esc** returns to the entry screen. The back arrow fades everything out before leaving.
