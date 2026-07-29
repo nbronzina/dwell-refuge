@@ -31,6 +31,17 @@ const Zones = (function() {
     };
 
     /**
+     * Virtualization guard: every zone's schedulers run all the
+     * time (the world keeps existing), but salient one-shots that
+     * nobody can hear should cost nothing - and must not fire
+     * their visual events. The engine drives masterGain; reading
+     * it tells the zone whether it is currently audible.
+     */
+    function makeAudible(masterGain) {
+        return () => masterGain.gain.value > 0.005;
+    }
+
+    /**
      * Feed-forward ducking: when a salient one-shot fires, the
      * zone's continuous beds step back 2-4dB and recover slowly -
      * the room makes space for the event
@@ -102,6 +113,7 @@ const Zones = (function() {
         let disposed = false;
         cleanupFns.push(() => { disposed = true; });
         const ducker = makeDucker(ctx);
+        const audible = makeAudible(masterGain);
 
         // Element placement
         const rainBus = createBus(ctx, masterGain, -0.4);    // the window, left
@@ -157,6 +169,7 @@ const Zones = (function() {
 
         // 3. Blind rattling - 8-20 seconds (wind gusts) (10%)
         const blindScheduler = Synthesis.createScheduler(8, 20, () => {
+            if (!audible()) return;
             Synthesis.createNoiseBurst(ctx, blindsBus, 180 + Math.random() * 80, 0.06, 10);
         });
         blindScheduler.start();
@@ -165,6 +178,8 @@ const Zones = (function() {
         // 4. Thunder + glass vibration - 15-45 seconds (5%)
         function thunderEvent() {
             if (disposed) return;
+            // Inaudible storms flash no lightning and cost no CPU
+            if (!audible()) return;
             // The room makes space for the thunder
             ducker.duck(3.5);
             // Real thunder recording if present, synthesized otherwise
@@ -197,6 +212,7 @@ const Zones = (function() {
         // Maintenance: now and then, tape smoothed onto the window
         // frame - someone keeps tending the seal
         const maintenance = Synthesis.createScheduler(150, 300, () => {
+            if (!audible()) return;
             Synthesis.createTapeSmooth(ctx, rainBus, 0.03);
         });
         maintenance.start();
@@ -206,7 +222,7 @@ const Zones = (function() {
         // rationed, likelier as the storm intensifies
         let stressLevel = 0;
         const intruder = Synthesis.createScheduler(240, 420, () => {
-            if (Math.random() > 0.25 + stressLevel * 0.5) return;
+            if (!audible() || Math.random() > 0.25 + stressLevel * 0.5) return;
             Synthesis.createSiren(ctx, outsideBus, 0.03);
         });
         intruder.start();
@@ -248,6 +264,7 @@ const Zones = (function() {
         zoneReverb.connect(destination);
 
         const cleanupFns = [];
+        const audible = makeAudible(masterGain);
 
         // Element placement
         const acBus = createBus(ctx, masterGain, -0.5);      // AC unit, left
@@ -330,6 +347,7 @@ const Zones = (function() {
 
         // Maintenance: a sigh in the heat - someone lives here
         const maintenance = Synthesis.createScheduler(180, 360, () => {
+            if (!audible()) return;
             Synthesis.createSigh(ctx, masterGain, 0.02);
         });
         maintenance.start();
@@ -339,7 +357,7 @@ const Zones = (function() {
         // the grid is failing someone nearby
         let stressLevel = 0;
         const intruder = Synthesis.createScheduler(300, 480, () => {
-            if (Math.random() > 0.2 + stressLevel * 0.5) return;
+            if (!audible() || Math.random() > 0.2 + stressLevel * 0.5) return;
             Synthesis.createGenerator(ctx, windowBus, 0.03);
         });
         intruder.start();
@@ -382,6 +400,7 @@ const Zones = (function() {
         zoneReverb.connect(destination);
 
         const cleanupFns = [];
+        const audible = makeAudible(masterGain);
 
         // Element placement
         const ventBus = createBus(ctx, masterGain, 0.3);        // vent, right
@@ -444,11 +463,12 @@ const Zones = (function() {
         // First bulletin ~90s in, so first visitors encounter it;
         // then every 4-7 minutes (hourly, in the fiction's time)
         const firstBulletin = setTimeout(() => {
-            radio.playBulletin(18 + Math.random() * 10);
+            if (audible()) radio.playBulletin(18 + Math.random() * 10);
         }, 90000);
         cleanupFns.push(() => clearTimeout(firstBulletin));
 
         const bulletinScheduler = Synthesis.createScheduler(240, 420, () => {
+            if (!audible()) return;
             radio.playBulletin(18 + Math.random() * 14);
         });
         bulletinScheduler.start();
@@ -458,6 +478,7 @@ const Zones = (function() {
         // by - a page turned, a chair creak, rarely the kettle.
         // Weighted so the kettle stays an event, not a habit.
         const nearField = Synthesis.createScheduler(100, 220, () => {
+            if (!audible()) return;
             const roll = Math.random();
             if (roll < 0.5) {
                 Synthesis.createPageTurn(ctx, randomSpot(ctx, masterGain, 0.3, 800), 0.02);
@@ -507,6 +528,7 @@ const Zones = (function() {
 
         const cleanupFns = [];
         const ducker = makeDucker(ctx);
+        const audible = makeAudible(masterGain);
 
         // Element placement
         const pipesBus = createBus(ctx, masterGain, -0.5);   // wall pipes, left
@@ -568,6 +590,7 @@ const Zones = (function() {
 
         // 4. Floating objects bumping - 15-45s, from anywhere (7%)
         const floatingScheduler = Synthesis.createScheduler(15, 45, () => {
+            if (!audible()) return;
             ducker.duck(3);
             Synthesis.createNoiseBurst(ctx, randomSpot(ctx, masterGain, 0.7, 800),
                 100 + Math.random() * 60, 0.12, 7);
@@ -577,6 +600,7 @@ const Zones = (function() {
 
         // 5. Splashes - 5-12s, from anywhere (3%)
         const splashScheduler = Synthesis.createScheduler(5, 12, () => {
+            if (!audible()) return;
             // Real splash if a recording is available
             if (Samples.playOneShot(ctx, 'splash', randomSpot(ctx, masterGain, 0.7, 1500), 0.06)) {
                 return;
@@ -612,6 +636,7 @@ const Zones = (function() {
         // Maintenance: the bucket, emptied - slosh, set-down clunk.
         // The single most important coping sound in the house.
         const maintenance = Synthesis.createScheduler(120, 240, () => {
+            if (!audible()) return;
             ducker.duck(2.5);
             Synthesis.createBucketEmpty(ctx, bucketBus, 0.06);
         });
@@ -622,7 +647,7 @@ const Zones = (function() {
         // another room - flash-flood warnings reach the house
         let stressLevel = 0;
         const intruder = Synthesis.createScheduler(280, 460, () => {
-            if (Math.random() > 0.2 + stressLevel * 0.5) return;
+            if (!audible() || Math.random() > 0.2 + stressLevel * 0.5) return;
             Synthesis.createAlertBuzz(ctx, randomSpot(ctx, masterGain, 0.5, 3500), 0.035);
         });
         intruder.start();
@@ -668,6 +693,7 @@ const Zones = (function() {
 
         const cleanupFns = [];
         const ducker = makeDucker(ctx);
+        const audible = makeAudible(masterGain);
 
         // Element placement
         const windLeftBus = createBus(ctx, masterGain, -0.5);
@@ -726,6 +752,7 @@ const Zones = (function() {
 
         // 4. Wood creaking - 25-60s, a different beam each time (10%)
         const creaks = Synthesis.createScheduler(25, 60, () => {
+            if (!audible()) return;
             ducker.duck(2.5);
             const spot = randomSpot(ctx, masterGain, 0.7, 1500);
             if (!Samples.playOneShot(ctx, 'creak', spot, 0.06)) {
@@ -753,6 +780,7 @@ const Zones = (function() {
         // that persists in reduced form; scarcity as duration
         // discipline on a familiar sound
         const maintenance = Synthesis.createScheduler(160, 320, () => {
+            if (!audible()) return;
             Synthesis.createPour(ctx, faucetBus, 0.035);
         });
         maintenance.start();
@@ -762,7 +790,7 @@ const Zones = (function() {
         // surveying the dryness
         let stressLevel = 0;
         const intruder = Synthesis.createScheduler(300, 480, () => {
-            if (Math.random() > 0.2 + stressLevel * 0.5) return;
+            if (!audible() || Math.random() > 0.2 + stressLevel * 0.5) return;
             Synthesis.createHelicopter(ctx, masterGain, 0.04);
         });
         intruder.start();

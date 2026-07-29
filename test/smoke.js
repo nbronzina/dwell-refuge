@@ -280,6 +280,16 @@ async function main() {
             def.name + ': has a score moment');
         assert(zone.reverb && typeof zone.reverb.setWetDry === 'function',
             def.name + ': exposes its reverb for distance-wet sends');
+        // Virtualization: an inaudible zone (gain 0) must not
+        // dispatch visual events when its one-shots fire
+        const before = dispatchedEvents;
+        zone.gainNode.gain.value = 0;
+        zone.trigger();
+        assert(dispatchedEvents === before,
+            def.name + ': silent zone dispatches no visual events');
+
+        // Audible zone: trigger runs fully
+        zone.gainNode.gain.value = 0.5;
         zone.trigger();             // must not throw
         zone.setProximity(0.6, -0.4);  // must not throw
         zone.setStress(0.7);           // must not throw
