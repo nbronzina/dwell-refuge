@@ -1,19 +1,19 @@
 # Field recordings
 
-Drop CC0 field recordings here and the engine uses them automatically — no code changes. Any file that's missing falls back to its synthesized version, so the piece works with any subset (or none).
+Drop CC0/CC BY field recordings here and the engine uses them automatically — no code changes. Any file that's missing falls back to its synthesized version, so the piece works with any subset (or none). See `CREDITS.txt` for the attribution of the files already included.
 
-## Expected files
+## Files
 
-| File | Zone | What to look for | Type |
-|------|------|------------------|------|
-| `rain-window.mp3` | storm | Steady rain against a window pane, no voices/traffic | loop |
-| `thunder-1.mp3` `thunder-2.mp3` `thunder-3.mp3` | storm | One distant rolling thunderclap per file, with tail | one-shot |
-| `cicadas.mp3` | heat | Cicada chorus, outdoors, steady (the engine adds the "closed window" filter) | loop |
-| `room-tone.mp3` | refuge | Very quiet interior room tone, nothing identifiable | loop |
-| `water-pipes.mp3` | flood | Water gurgling through pipes or a drain | loop |
-| `splash-1.mp3` `splash-2.mp3` | flood | Small indoor water splash, short | one-shot |
-| `wind-dry.mp3` | drought | Dry wind — a doorframe whistle or open field | loop |
-| `creak-1.mp3` `creak-2.mp3` | drought | Wood creaking under strain, short | one-shot |
+| File | Zone | What to look for | Type | Status |
+|------|------|------------------|------|--------|
+| `rain-window.mp3` | storm | Steady rain against a window pane, no voices/traffic | loop | ✅ included |
+| `thunder-1.mp3` `thunder-2.mp3` `thunder-3.mp3` | storm | One distant rolling thunderclap per file, with tail | one-shot | ✅ included |
+| `cicadas.mp3` | heat | Cicada chorus, outdoors, steady (the engine adds the "closed window" filter) | loop | synthesized |
+| `room-tone.mp3` | refuge | Very quiet interior room tone, nothing identifiable | loop | synthesized |
+| `water-pipes.mp3` | flood | Water gurgling through pipes or a drain | loop | ✅ included |
+| `splash-1.mp3` `splash-2.mp3` | flood | Small indoor water splash, short | one-shot | synthesized |
+| `wind-dry.mp3` | drought | Dry wind — a doorframe whistle or open field | loop | ✅ included |
+| `creak-1.mp3` `creak-2.mp3` | drought | Wood creaking under strain, short | one-shot | synthesized |
 
 ## Format
 

@@ -1,0 +1,38 @@
+dwell:refuge - field recording credits
+=======================================
+
+Sourced via github.com/Muges/ambientsounds (a free-licensed
+ambient sound collection). Original recordings on freesound.org.
+All files were excerpted, filtered and re-encoded for this piece.
+
+rain-window.mp3
+  "Heavy Rain" by D W
+  https://www.freesound.org/people/D%20W/sounds/136971/
+  License: CC BY
+  Processing: 30s excerpt, 6kHz lowpass, normalized
+
+wind-dry.mp3
+  "Wind" by felix.blume
+  https://www.freesound.org/people/felix.blume/sounds/139337/
+  License: CC0
+  Processing: 45s excerpt, normalized
+
+water-pipes.mp3
+  "Stream" by mystiscool
+  https://www.freesound.org/people/mystiscool/sounds/7138/
+  License: CC BY
+  Processing: 40s excerpt, bandpassed 150-900Hz to read as
+  water moving through pipes, normalized
+
+thunder-1.mp3, thunder-2.mp3, thunder-3.mp3
+  "Thunderstorm" by RHumphries
+  https://www.freesound.org/people/RHumphries/sounds/2523/
+  License: CC BY
+  Processing: three ~10s excerpts around the loudest claps,
+  faded, normalized
+
+Attribution note: CC BY requires credit. These authors are also
+credited on the piece's entry screen. Keep both when deploying.
+
+Still synthesized (no recording yet - drop files in to replace):
+  cicadas.mp3, room-tone.mp3, splash-1/2.mp3, creak-1/2.mp3
