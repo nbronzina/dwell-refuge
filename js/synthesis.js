@@ -599,7 +599,7 @@ const Synthesis = (function() {
     /**
      * Create wind with LFO modulation on gain
      */
-    function createWind(ctx, filterFreq = 400, lfoRate = 0.1, lfoDepth = 0.3) {
+    function createWind(ctx, filterFreq = 400, lfoRate = 0.1, lfoDepth = 0.3, q = 0.3) {
         const noiseBuffer = getNoiseBuffer(ctx, 'white', 4);
         const noise = ctx.createBufferSource();
         noise.buffer = noiseBuffer;
@@ -608,7 +608,7 @@ const Synthesis = (function() {
         const filter = ctx.createBiquadFilter();
         filter.type = 'bandpass';
         filter.frequency.value = filterFreq;
-        filter.Q.value = 0.3;
+        filter.Q.value = q;  // high Q = wind forcing a window frame, not open field
 
         const lfo = ctx.createOscillator();
         const lfoGain = ctx.createGain();

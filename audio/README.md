@@ -8,7 +8,7 @@ Drop CC0/CC BY field recordings here and the engine uses them automatically — 
 |------|------|------------------|------|--------|
 | `rain-window.mp3` | storm | Steady rain against a window pane, no voices/traffic | loop | ✅ included |
 | `thunder-1.mp3` `thunder-2.mp3` `thunder-3.mp3` | storm | One distant rolling thunderclap per file, with tail | one-shot | ✅ included |
-| `cicadas.mp3` | heat | Cicada chorus, outdoors, steady (the engine adds the "closed window" filter) | loop | ✅ included |
+| `cicadas.mp3` | heat | Night insect chorus, steady (the heat zone is a sleepless hot night; the engine adds the closed-window filter) | loop | ✅ included |
 | `room-tone.mp3` | refuge | Very quiet interior room tone, nothing identifiable | loop | synthesized |
 | `water-pipes.mp3` | flood | Water gurgling through pipes or a drain | loop | ✅ included |
 | `splash-1.mp3` `splash-2.mp3` | flood | Small indoor water splash, short | one-shot | ✅ included |

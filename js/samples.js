@@ -23,7 +23,7 @@ const Samples = (function() {
         },
         'cicadas': {
             files: ['cicadas.mp3'], loop: true, trim: 1,
-            desc: 'cicada chorus, recorded outdoors'
+            desc: 'night insect chorus, outdoors (the heat zone is a sleepless hot night)'
         },
         'room-tone': {
             files: ['room-tone.mp3'], loop: true, trim: 1,

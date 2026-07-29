@@ -249,8 +249,9 @@ const Zones = (function() {
 
     // ============================================
     // HEAT ZONE [0.9, 0.1]
-    // August siesta - 3pm, everything closed
-    // Balance: AC 50%, Fridge 30%, Cicadas 15%, Fan 5%
+    // The night of heat - too hot to sleep, everything closed,
+    // the machines running against it
+    // Balance: AC 50%, Fridge 30%, Night insects 15%, Fan 5%
     // Room: AC unit left, kitchen right, window behind, fan above
     // ============================================
 
@@ -293,8 +294,9 @@ const Zones = (function() {
         fridge.start();
         cleanupFns.push(() => fridge.stop());
 
-        // 3. Distant cicadas through window (15%)
-        // Real cicadas are the biggest realism win over AM synthesis
+        // 3. Night insects through the window (15%)
+        // The crickets recording is exactly right for a sleepless
+        // hot night; real insects beat AM synthesis
         let cicadas;
         if (Samples.has('cicadas')) {
             cicadas = Samples.createLoop(ctx, 'cicadas');
@@ -686,9 +688,10 @@ const Zones = (function() {
 
     // ============================================
     // DROUGHT ZONE [0.9, 0.9]
-    // Months without rain - everything dry
-    // Balance: Wind 50%, Dust 20%, Faucet 20%, Creaks 10%
-    // Room: wind on both sides, faucet right, creaks everywhere
+    // Months without rain - a house that creaks with dryness.
+    // INTERIOR first: the wind is heard forcing the window frame,
+    // never as open field - the thesis is inside.
+    // Balance: Wind ~35%, Dust 15%, Faucet 25%, Creaks 15%, Room 10%
     // ============================================
 
     function createDroughtZone(ctx, destination) {
@@ -709,30 +712,36 @@ const Zones = (function() {
         const windRightBus = createBus(ctx, masterGain, 0.5);
         const faucetBus = createBus(ctx, masterGain, 0.6);   // dry faucet, right
 
-        // 1. Dry wind (50%): a field recording carries its own width
-        // and movement; the synth fallback uses two decorrelated
-        // layers, one per side (shared noise buffer, random offsets)
+        // 1. Dry wind (~35%): always heard through the house, never
+        // as open field. The recording passes a window-frame
+        // resonance; the synth fallback whistles through two
+        // narrow-band frames, one per side.
         if (Samples.has('wind-dry')) {
             const wind = Samples.createLoop(ctx, 'wind-dry');
-            wind.gain.gain.value = 0.1;
-            wind.connect(masterGain);
+            wind.gain.gain.value = 0.07;
+            const frame = ctx.createBiquadFilter();
+            frame.type = 'bandpass';
+            frame.frequency.value = 1100;
+            frame.Q.value = 1.4;
+            wind.connect(frame);
+            frame.connect(masterGain);
             wind.start();
             cleanupFns.push(() => wind.stop());
-            ducker.register(wind.gain.gain, 0.1);
+            ducker.register(wind.gain.gain, 0.07);
         } else {
-            const windLeft = Synthesis.createWind(ctx, 1200, 0.05, 0.12);
-            windLeft.gain.gain.value = 0.06;
+            const windLeft = Synthesis.createWind(ctx, 1400, 0.05, 0.12, 2.5);
+            windLeft.gain.gain.value = 0.05;
             windLeft.connect(windLeftBus);
             windLeft.start();
             cleanupFns.push(() => { try { windLeft.stop(); } catch(e) {} });
-            ducker.register(windLeft.gain.gain, 0.06);
+            ducker.register(windLeft.gain.gain, 0.05);
 
-            const windRight = Synthesis.createWind(ctx, 1100, 0.08, 0.12);
-            windRight.gain.gain.value = 0.06;
+            const windRight = Synthesis.createWind(ctx, 1250, 0.08, 0.12, 2.2);
+            windRight.gain.gain.value = 0.05;
             windRight.connect(windRightBus);
             windRight.start();
             cleanupFns.push(() => { try { windRight.stop(); } catch(e) {} });
-            ducker.register(windRight.gain.gain, 0.06);
+            ducker.register(windRight.gain.gain, 0.05);
         }
 
         // 2. Dust particles - very fine texture (20%)
@@ -753,26 +762,26 @@ const Zones = (function() {
         dustLfo.start();
         cleanupFns.push(() => { try { dustLfo.stop(); } catch(e) {} });
 
-        // 3. Dripping faucet - 5-10 seconds (scarcity), tuned (20%)
-        const faucet = Synthesis.scheduleDripsWithReverb(ctx, faucetBus, 5, 10, 'tile', 0.12,
+        // 3. Dripping faucet - 5-10 seconds (scarcity), tuned (25%)
+        const faucet = Synthesis.scheduleDripsWithReverb(ctx, faucetBus, 5, 10, 'tile', 0.14,
             { table: CHORDS.drought, restChance: 0.15, restMin: 30, restMax: 70 });
         faucet.start();
         cleanupFns.push(() => faucet.stop());
 
-        // 4. Wood creaking - 25-60s, a different beam each time (10%)
-        const creaks = Synthesis.createScheduler(25, 60, () => {
+        // 4. Wood creaking - 20-50s, a different beam each time (15%)
+        const creaks = Synthesis.createScheduler(20, 50, () => {
             if (!audible()) return;
             ducker.duck(2.5);
             const spot = randomSpot(ctx, masterGain, 0.7, 1500);
-            if (!Samples.playOneShot(ctx, 'creak', spot, 0.06)) {
-                Synthesis.createCreak(ctx, spot, 0.06, null, CHORDS.drought);
+            if (!Samples.playOneShot(ctx, 'creak', spot, 0.08)) {
+                Synthesis.createCreak(ctx, spot, 0.08, null, CHORDS.drought);
             }
         }, { restChance: 0.15, restMin: 40, restMax: 90 });
         creaks.start();
         cleanupFns.push(() => creaks.stop());
 
-        // 5. Sparse room presence
-        const roomPresence = Synthesis.createRoomTone(ctx, 65, 0.01);
+        // 5. Room presence - the interior grounds the zone (10%)
+        const roomPresence = Synthesis.createRoomTone(ctx, 65, 0.016);
         roomPresence.connect(masterGain);
         roomPresence.start();
         cleanupFns.push(() => { try { roomPresence.stop(); } catch(e) {} });
@@ -788,7 +797,7 @@ const Zones = (function() {
         // Maintenance: water poured from a stored jug - a ritual
         // that persists in reduced form; scarcity as duration
         // discipline on a familiar sound
-        const maintenance = Synthesis.createScheduler(160, 320, () => {
+        const maintenance = Synthesis.createScheduler(130, 260, () => {
             if (!audible()) return;
             Synthesis.createPour(ctx, faucetBus, 0.035);
         });

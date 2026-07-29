@@ -29,9 +29,10 @@
     // ?walk runs the canonical traversal and exports the recording
     const walkMode = window.location.search.indexOf('walk') !== -1;
 
-    // Full audio: the visuals are onboarding only. This long after
-    // entering, the lights go down and the piece is sound alone.
-    const LIGHTS_DOWN_MS = 90000;
+    // Full audio: the visuals are onboarding only. Long enough to
+    // tour all five rooms lit and read each name once - then the
+    // lights go down and the piece is sound alone.
+    const LIGHTS_DOWN_MS = 240000;
     let lightsDownTimer = null;
 
     // Initialize
