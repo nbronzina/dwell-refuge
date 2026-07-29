@@ -20,6 +20,7 @@ const RefugeAudio = (function() {
     let delayGain = null;
     let filterNode = null;
     let compressor = null;
+    let subFilter = null;
 
     // Active zone sources
     let activeSources = [];
@@ -61,6 +62,15 @@ const RefugeAudio = (function() {
     // Current cursor position (0-1)
     let position = { x: 0.5, y: 0.5 };
 
+    // Stillness reward: staying still reveals detail.
+    // Movement blurs the space slightly; resting opens it up.
+    let currentVelocity = 0;
+    let stillness = 0;
+    const STILLNESS_VELOCITY = 0.3;      // Velocity above this = fully "moving"
+    const STILLNESS_SMOOTH = 0.008;      // Per-frame easing (~2s to settle)
+    const STILLNESS_FILTER_BONUS = 1800; // Extra filter opening (Hz) when still
+    const STILLNESS_GAIN_BONUS = 0.08;   // Extra zone gain (fraction) when still
+
     // Temporal evolution tracking
     let lastDominantZone = null;
     let lastEvolutionUpdate = 0;
@@ -89,10 +99,19 @@ const RefugeAudio = (function() {
         compressor.release.value = 0.1;
         compressor.connect(audioContext.destination);
 
+        // Sub-bass cleanup: room tones and drones stack low-frequency
+        // energy that would pump the compressor without adding anything
+        // audible - cut below ~24Hz before it gets there
+        subFilter = audioContext.createBiquadFilter();
+        subFilter.type = 'highpass';
+        subFilter.frequency.value = 24;
+        subFilter.Q.value = 0.7;
+        subFilter.connect(compressor);
+
         // Master gain for fade in/out
         masterGain = audioContext.createGain();
         masterGain.gain.value = 0;
-        masterGain.connect(compressor);
+        masterGain.connect(subFilter);
 
         // Global filter (responds to Y position)
         // Range: 400Hz (muffled) to 12000Hz (bright)
@@ -315,6 +334,7 @@ const RefugeAudio = (function() {
                 audioContext = null;
                 masterGain = null;
                 compressor = null;
+                subFilter = null;
                 filterNode = null;
                 reverbNode = null;
                 reverbGain = null;
@@ -369,13 +389,16 @@ const RefugeAudio = (function() {
     }
 
     function updateZoneGains() {
+        // Stillness slightly lifts everything - detail as reward
+        const stillnessBoost = 1 + STILLNESS_GAIN_BONUS * stillness;
+
         activeSources.forEach(source => {
             const dx = position.x - source.x;
             const dy = position.y - source.y;
             const distance = Math.sqrt(dx * dx + dy * dy);
 
             // Inverse distance attenuation with steeper falloff
-            const gain = source.evolutionGain / (1 + distance * DISTANCE_FACTOR);
+            const gain = (source.evolutionGain * stillnessBoost) / (1 + distance * DISTANCE_FACTOR);
 
             smoothParam(source.gainNode.gain, gain, SMOOTH.zoneGain);
         });
@@ -399,13 +422,18 @@ const RefugeAudio = (function() {
             updateEvolution(deltaTime);
         }
 
+        // Ease stillness toward its target
+        const targetStillness = Math.max(0, Math.min(1, 1 - currentVelocity / STILLNESS_VELOCITY));
+        stillness += (targetStillness - stillness) * STILLNESS_SMOOTH;
+
         // Y position affects depth:
         // Y = 0 (top) = bright, dry, present
         // Y = 1 (bottom) = muffled, wet, distant
         const depth = position.y;
 
-        // Filter: 400Hz - 12000Hz sweep (more dramatic range)
-        const filterFreq = 400 + (1 - depth) * 11600;
+        // Filter: 400Hz - 12000Hz sweep, opening further with stillness
+        const filterFreq = Math.min(12000,
+            400 + (1 - depth) * 11600 + stillness * STILLNESS_FILTER_BONUS);
         smoothParam(filterNode.frequency, filterFreq, SMOOTH.filter);
 
         // Reverb: 0.08 - 0.45 (subtle to noticeable)
@@ -452,6 +480,8 @@ const RefugeAudio = (function() {
 
         lastDominantZone = null;
         lastEvolutionUpdate = 0;
+        stillness = 0;
+        currentVelocity = 0;
     }
 
     function stopEngine() {
@@ -529,6 +559,11 @@ const RefugeAudio = (function() {
         setPosition: function(x, y) {
             position.x = Math.max(0, Math.min(1, x));
             position.y = Math.max(0, Math.min(1, y));
+        },
+
+        // Fed continuously by the input layer for the stillness reward
+        setVelocity: function(v) {
+            currentVelocity = v;
         },
 
         isRunning: function() {

@@ -170,16 +170,28 @@
     }
 
     function showHint() {
-        // Show hint after a moment
+        // First lesson: the space responds to movement
         setTimeout(function() {
+            if (!hasEntered) return;
+            hint.textContent = 'move';
             hint.classList.add('visible');
 
-            // Fade hint after interaction
             setTimeout(function() {
                 hint.classList.remove('visible');
-                hint.classList.add('fade');
             }, 4000);
         }, 2000);
+
+        // Second lesson, once the space has been explored:
+        // stillness reveals detail
+        setTimeout(function() {
+            if (!hasEntered) return;
+            hint.textContent = 'or be still';
+            hint.classList.add('visible');
+
+            setTimeout(function() {
+                hint.classList.remove('visible');
+            }, 4000);
+        }, 30000);
     }
 
     // Start when DOM ready

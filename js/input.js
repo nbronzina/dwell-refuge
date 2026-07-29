@@ -27,6 +27,23 @@ const RefugeInput = (function() {
     // Keyboard step per keydown (arrow keys)
     const KEY_STEP = 0.02;
 
+    // Idle drift: after enough time without input, the weather
+    // comes to you - position creeps toward the nearest hostile zone
+    const IDLE_DELAY_MS = 90000;   // 90s of no input before drift starts
+    const DRIFT_EASE = 0.0004;     // Per-frame easing (barely perceptible creep)
+    const DRIFT_TARGETS = [
+        { x: 0.1, y: 0.1 },  // storm
+        { x: 0.9, y: 0.1 },  // heat
+        { x: 0.1, y: 0.9 },  // flood
+        { x: 0.9, y: 0.9 }   // drought
+    ];
+    let lastUserInputTime = performance.now();
+    let driftTarget = null;
+
+    // Velocity is pushed to the audio engine a few times a second
+    let lastVelocityPush = 0;
+    const VELOCITY_PUSH_MS = 200;
+
     // Gyroscope state
     let useGyro = false;
     let gyroAvailable = false;
@@ -255,8 +272,13 @@ const RefugeInput = (function() {
     // POSITION UPDATE
     // ============================================
 
-    function updatePosition(x, y, screenX, screenY) {
+    function updatePosition(x, y, screenX, screenY, isUserInput = true) {
         const now = performance.now();
+
+        if (isUserInput) {
+            lastUserInputTime = now;
+            driftTarget = null;  // User takes control back from idle drift
+        }
 
         // Calculate velocity from movement
         const dx = x - lastPosition.x;
@@ -300,7 +322,53 @@ const RefugeInput = (function() {
     function updateVelocity() {
         // Decay velocity over time
         velocity *= VELOCITY_DECAY;
+
+        const now = performance.now();
+
+        // Keep the audio engine informed even when no events fire
+        // (otherwise stillness would never register after stopping)
+        if (now - lastVelocityPush >= VELOCITY_PUSH_MS) {
+            lastVelocityPush = now;
+            if (typeof RefugeAudio !== 'undefined') {
+                RefugeAudio.setVelocity(velocity);
+            }
+        }
+
+        updateIdleDrift(now);
+
         requestAnimationFrame(updateVelocity);
+    }
+
+    // ============================================
+    // IDLE DRIFT - the weather comes to you
+    // ============================================
+
+    function updateIdleDrift(now) {
+        if (!isActive ||
+            typeof RefugeAudio === 'undefined' || !RefugeAudio.isRunning() ||
+            now - lastUserInputTime < IDLE_DELAY_MS) {
+            driftTarget = null;
+            return;
+        }
+
+        if (!driftTarget) {
+            // The nearest hostile zone encroaches
+            let best = null;
+            let bestDist = Infinity;
+            DRIFT_TARGETS.forEach(t => {
+                const d = Math.hypot(t.x - lastPosition.x, t.y - lastPosition.y);
+                if (d < bestDist) {
+                    bestDist = d;
+                    best = t;
+                }
+            });
+            driftTarget = best;
+        }
+
+        const x = lastPosition.x + (driftTarget.x - lastPosition.x) * DRIFT_EASE;
+        const y = lastPosition.y + (driftTarget.y - lastPosition.y) * DRIFT_EASE;
+
+        updatePosition(x, y, x * window.innerWidth, y * window.innerHeight, false);
     }
 
     function showCursor() {

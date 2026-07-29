@@ -182,6 +182,14 @@ html, body {
     border-color: var(--heated-accent);
 }
 
+/* Keyboard focus */
+.entry-button:focus-visible,
+.back-link:focus-visible,
+.gyro-button:focus-visible {
+    outline: 1px solid var(--heated-accent);
+    outline-offset: 3px;
+}
+
 /* Prevent text selection */
 .entry-screen, .sound-space {
     user-select: none;

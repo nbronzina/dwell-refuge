@@ -27,8 +27,8 @@
     <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
-    <!-- Back link -->
-    <a href="https://heated.studio" class="back-link" target="_blank" rel="noopener">&larr;</a>
+    <!-- Back link (same tab: the graceful audio fade precedes navigation) -->
+    <a href="https://heated.studio" class="back-link" aria-label="Back to heated.studio">&larr;</a>
 
     <!-- Entry Screen -->
     <div id="entry" class="entry-screen">
@@ -49,7 +49,7 @@
     <!-- Sound Space (hidden until entered) -->
     <div id="space" class="sound-space hidden">
         <div class="space-hint" id="hint">move</div>
-        <div class="zone-label" id="zoneLabel"></div>
+        <div class="zone-label" id="zoneLabel" aria-live="polite"></div>
     </div>
 
     <!-- Scripts (order matters: synthesis -> zones -> audio -> input -> main) -->

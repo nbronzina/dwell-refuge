@@ -23,6 +23,20 @@ const Synthesis = (function() {
     // ============================================
 
     /**
+     * Crossfade the buffer's tail into its head so looped
+     * playback has no discontinuity click at the seam
+     */
+    function smoothLoopEnds(output, sampleRate) {
+        const fadeLen = Math.min(Math.floor(sampleRate * 0.05), Math.floor(output.length * 0.1));
+        if (fadeLen < 2) return;
+        const start = output.length - fadeLen;
+        for (let i = 0; i < fadeLen; i++) {
+            const w = i / fadeLen;
+            output[start + i] = output[start + i] * (1 - w) + output[i] * w;
+        }
+    }
+
+    /**
      * Create pink noise buffer
      * Pink noise: 1/f spectrum, natural sounding
      */
@@ -45,6 +59,7 @@ const Synthesis = (function() {
             b6 = white * 0.115926;
         }
 
+        smoothLoopEnds(output, ctx.sampleRate);
         return buffer;
     }
 
@@ -60,7 +75,23 @@ const Synthesis = (function() {
             output[i] = seededRandom() * 2 - 1;
         }
 
+        smoothLoopEnds(output, ctx.sampleRate);
         return buffer;
+    }
+
+    // Shared looped noise buffers - several zones loop the same
+    // kind of noise, so generate each variant once per session.
+    // Consumers decorrelate by starting at a random offset.
+    const noiseBufferCache = {};
+
+    function getNoiseBuffer(ctx, type, duration = 2) {
+        const key = type + ':' + duration + ':' + ctx.sampleRate;
+        if (!noiseBufferCache[key]) {
+            noiseBufferCache[key] = type === 'pink'
+                ? createPinkNoiseBuffer(ctx, duration)
+                : createWhiteNoiseBuffer(ctx, duration);
+        }
+        return noiseBufferCache[key];
     }
 
     /**
@@ -72,9 +103,7 @@ const Synthesis = (function() {
      * @param {number} Q - filter resonance
      */
     function createFilteredNoise(ctx, noiseType, filterType, cutoff, Q = 0.5) {
-        const buffer = noiseType === 'pink'
-            ? createPinkNoiseBuffer(ctx, 2)
-            : createWhiteNoiseBuffer(ctx, 2);
+        const buffer = getNoiseBuffer(ctx, noiseType === 'pink' ? 'pink' : 'white', 2);
 
         const source = ctx.createBufferSource();
         source.buffer = buffer;
@@ -95,7 +124,8 @@ const Synthesis = (function() {
             source,
             filter,
             gain,
-            start: () => source.start(),
+            // Random offset decorrelates zones sharing the same buffer
+            start: () => source.start(0, Math.random() * buffer.duration),
             stop: () => source.stop(),
             connect: (dest) => gain.connect(dest)
         };
@@ -416,7 +446,7 @@ const Synthesis = (function() {
      * Create wind with LFO modulation on gain
      */
     function createWind(ctx, filterFreq = 400, lfoRate = 0.1, lfoDepth = 0.3) {
-        const noiseBuffer = createWhiteNoiseBuffer(ctx, 4);
+        const noiseBuffer = getNoiseBuffer(ctx, 'white', 4);
         const noise = ctx.createBufferSource();
         noise.buffer = noiseBuffer;
         noise.loop = true;
@@ -448,7 +478,7 @@ const Synthesis = (function() {
             lfo,
             gain: outputGain,
             start: () => {
-                noise.start();
+                noise.start(0, Math.random() * noiseBuffer.duration);
                 lfo.start();
             },
             stop: () => {
@@ -613,7 +643,7 @@ const Synthesis = (function() {
         const osc = ctx.createOscillator();
         const osc2 = ctx.createOscillator();
         const noise = ctx.createBufferSource();
-        noise.buffer = createPinkNoiseBuffer(ctx, 2);
+        noise.buffer = getNoiseBuffer(ctx, 'pink', 2);
         noise.loop = true;
 
         const noiseFilter = ctx.createBiquadFilter();
@@ -669,7 +699,7 @@ const Synthesis = (function() {
             start: () => {
                 osc.start();
                 osc2.start();
-                noise.start();
+                noise.start(0, Math.random() * 2);
                 isRunning = true;
                 // Start in off state, turn on after random delay
                 cycleTimeout = setTimeout(cycle, Math.random() * 5000);
