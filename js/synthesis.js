@@ -230,7 +230,10 @@ const Synthesis = (function() {
 
         function scheduleNext() {
             if (!running) return;
-            let interval = ((minInterval + Math.random() * (maxInterval - minInterval)) /
+            // Authored series beat dice: pass opts.intervalSeries
+            // (a createSeries of 0-1 values) for composed timing
+            const u = opts.intervalSeries ? opts.intervalSeries.next() : Math.random();
+            let interval = ((minInterval + u * (maxInterval - minInterval)) /
                 Math.max(0.1, rate)) * 1000;
             // Occasional long rest: long-form listening needs
             // genuine gaps, not constant activity
@@ -898,9 +901,10 @@ const Synthesis = (function() {
     /**
      * Fire a single drip into pre-built dry/wet destinations
      */
-    function triggerDrip(ctx, dryDest, wetDest, type, gain, table) {
+    function triggerDrip(ctx, dryDest, wetDest, type, gain, table, pitchSeries) {
         const profile = DRIP_PROFILES[type] || DRIP_PROFILES.room;
-        const freq = snapFreq(profile.freqBase + Math.random() * profile.freqRange, table);
+        const u = pitchSeries ? pitchSeries.next() : Math.random();
+        const freq = snapFreq(profile.freqBase + u * profile.freqRange, table);
         const duration = profile.duration;
 
         const osc = ctx.createOscillator();
@@ -985,7 +989,7 @@ const Synthesis = (function() {
         dry.connect(destination);
 
         const scheduler = createScheduler(minInterval, maxInterval, () => {
-            triggerDrip(ctx, dry, reverb, type, gain, opts.table);
+            triggerDrip(ctx, dry, reverb, type, gain, opts.table, opts.pitchSeries);
         }, opts);
 
         return {
@@ -1201,6 +1205,285 @@ const Synthesis = (function() {
     }
 
     // ============================================
+    // AUTHORED SERIES (Mini Metro serialism)
+    // Hand-written cycles replace raw randomness: unpredictable in
+    // the small, composer-shaped in the large. Give independent
+    // series coprime lengths so they phase against each other.
+    // ============================================
+
+    function createSeries(values) {
+        let i = 0;
+        return { next: () => values[i++ % values.length] };
+    }
+
+    // ============================================
+    // MAINTENANCE & INTRUDERS
+    // The sounds of a person coping (evidence of adaptation, not
+    // disaster), and - rarely - the outside world intruding.
+    // All scheduled on the audio clock; cleanup rides onended.
+    // ============================================
+
+    function noiseShot(ctx, dest, o) {
+        const src = ctx.createBufferSource();
+        src.buffer = getNoiseBuffer(ctx, o.noise || 'pink', 2);
+        const f = ctx.createBiquadFilter();
+        f.type = o.type || 'bandpass';
+        f.frequency.value = o.freq || 800;
+        f.Q.value = o.q || 1;
+        const g = ctx.createGain();
+        const t = o.when !== undefined ? o.when : ctx.currentTime;
+        g.gain.setValueAtTime(0, t);
+        g.gain.linearRampToValueAtTime(o.peak || 0.05, t + (o.attack || 0.02));
+        g.gain.exponentialRampToValueAtTime(0.0001, t + (o.attack || 0.02) + (o.decay || 0.5));
+        if (o.freqTo) {
+            f.frequency.setValueAtTime(o.freq, t);
+            f.frequency.linearRampToValueAtTime(o.freqTo, t + (o.attack || 0.02) + (o.decay || 0.5));
+        }
+        src.connect(f);
+        f.connect(g);
+        g.connect(dest);
+        src.start(t, Math.random() * 1.5);
+        src.stop(t + (o.attack || 0.02) + (o.decay || 0.5) + 0.1);
+        src.onended = () => {
+            try { f.disconnect(); g.disconnect(); } catch(e) {}
+        };
+        return src;
+    }
+
+    // A quiet human exhale - someone lives here
+    function createSigh(ctx, dest, gain = 0.02) {
+        noiseShot(ctx, dest, { freq: 900, freqTo: 450, q: 0.7, peak: gain, attack: 0.3, decay: 1.1 });
+    }
+
+    // Tape smoothed onto a window frame - a half-theatrical defense
+    function createTapeSmooth(ctx, dest, gain = 0.03) {
+        noiseShot(ctx, dest, { type: 'highpass', freq: 1800, freqTo: 3800, peak: gain, attack: 0.12, decay: 0.35 });
+    }
+
+    // A page turned
+    function createPageTurn(ctx, dest, gain = 0.02) {
+        noiseShot(ctx, dest, { type: 'highpass', freq: 1500, peak: gain, attack: 0.03, decay: 0.22 });
+    }
+
+    // The bucket, emptied: slosh, set-down clunk, one last drip.
+    // The single most maintenance sound in the house.
+    function createBucketEmpty(ctx, dest, gain = 0.06) {
+        const now = ctx.currentTime;
+        noiseShot(ctx, dest, { freq: 420, freqTo: 700, q: 1.3, peak: gain, attack: 0.18, decay: 0.7 });
+        noiseShot(ctx, dest, { type: 'lowpass', freq: 160, peak: gain * 1.2, attack: 0.005, decay: 0.25, when: now + 1.05 });
+        createClick(ctx, dest, 900, 0.04, gain * 0.5);
+    }
+
+    // Water poured from a stored jug - the pitch of a filling
+    // vessel rises; scarcity has a duration discipline
+    function createPour(ctx, dest, gain = 0.035) {
+        noiseShot(ctx, dest, { freq: 650, freqTo: 1300, q: 2.2, peak: gain, attack: 0.25, decay: 1.1 });
+    }
+
+    // A kettle put on: slow rise, accelerating bubble, switch-off
+    function createKettle(ctx, dest, gain = 0.02) {
+        const now = ctx.currentTime;
+        const dur = 16;
+        noiseShot(ctx, dest, { type: 'lowpass', freq: 300, freqTo: 1500, peak: gain, attack: dur * 0.7, decay: dur * 0.3 });
+        let t = now + 3;
+        let step = 1.1;
+        while (t < now + dur - 1) {
+            createClick(ctx, dest, 350 + Math.random() * 450, 0.03, gain * (0.4 + Math.random() * 0.5));
+            t += step;
+            step = Math.max(0.18, step * 0.86);  // bubbling accelerates
+        }
+        // the switch clicks off
+        const off = ctx.createOscillator();
+        const og = ctx.createGain();
+        off.type = 'square';
+        off.frequency.value = 1400;
+        og.gain.setValueAtTime(0, now + dur);
+        og.gain.linearRampToValueAtTime(gain, now + dur + 0.004);
+        og.gain.exponentialRampToValueAtTime(0.0001, now + dur + 0.05);
+        off.connect(og);
+        og.connect(dest);
+        off.start(now + dur);
+        off.stop(now + dur + 0.08);
+    }
+
+    // A distant siren, through the wall and the rain
+    function createSiren(ctx, dest, gain = 0.03) {
+        const now = ctx.currentTime;
+        const dur = 14;
+        const o = ctx.createOscillator();
+        o.type = 'sine';
+        o.frequency.value = 600;
+        const lfo = ctx.createOscillator();
+        const lg = ctx.createGain();
+        lfo.type = 'sine';
+        lfo.frequency.value = 0.16;
+        lg.gain.value = 28;
+        lfo.connect(lg);
+        lg.connect(o.frequency);
+        const wall = ctx.createBiquadFilter();
+        wall.type = 'lowpass';
+        wall.frequency.value = 850;
+        const g = ctx.createGain();
+        g.gain.setValueAtTime(0, now);
+        g.gain.linearRampToValueAtTime(gain, now + dur * 0.4);
+        g.gain.linearRampToValueAtTime(0.0001, now + dur);
+        o.connect(wall);
+        wall.connect(g);
+        g.connect(dest);
+        o.start(now);
+        lfo.start(now);
+        o.stop(now + dur);
+        lfo.stop(now + dur);
+        o.onended = () => { try { wall.disconnect(); g.disconnect(); lg.disconnect(); } catch(e) {} };
+    }
+
+    // A neighbor's generator: sputters, catches, runs, recedes
+    function createGenerator(ctx, dest, gain = 0.03) {
+        const now = ctx.currentTime;
+        // sputter: decelerating gaps closing into a firing rate
+        let t = now;
+        let gap = 0.4;
+        for (let i = 0; i < 9; i++) {
+            noiseShot(ctx, dest, { type: 'lowpass', freq: 180, peak: gain * 0.9, attack: 0.004, decay: 0.09, when: t });
+            t += gap;
+            gap = Math.max(0.07, gap * 0.72);
+        }
+        // steady running: hum at 66.7Hz (a just fourth over the mains)
+        const o = ctx.createOscillator();
+        o.type = 'sawtooth';
+        o.frequency.value = 66.7;
+        const lp = ctx.createBiquadFilter();
+        lp.type = 'lowpass';
+        lp.frequency.value = 220;
+        const g = ctx.createGain();
+        g.gain.setValueAtTime(0, t);
+        g.gain.linearRampToValueAtTime(gain, t + 1.2);
+        g.gain.setValueAtTime(gain, t + 9);
+        g.gain.linearRampToValueAtTime(0.0001, t + 14);
+        o.connect(lp);
+        lp.connect(g);
+        g.connect(dest);
+        o.start(t);
+        o.stop(t + 14.2);
+        o.onended = () => { try { lp.disconnect(); g.disconnect(); } catch(e) {} };
+    }
+
+    // An emergency alert buzzing on a phone in another room
+    function createAlertBuzz(ctx, dest, gain = 0.035) {
+        const now = ctx.currentTime;
+        const o = ctx.createOscillator();
+        o.type = 'square';
+        o.frequency.value = 470;
+        const am = ctx.createOscillator();
+        const amG = ctx.createGain();
+        am.type = 'square';
+        am.frequency.value = 26;
+        amG.gain.value = 0.5;
+        am.connect(amG);
+        const phone = ctx.createBiquadFilter();
+        phone.type = 'bandpass';
+        phone.frequency.value = 1300;
+        phone.Q.value = 2;
+        const g = ctx.createGain();
+        g.gain.value = 0;
+        amG.connect(g.gain);
+        // three buzzes, the standard alert pattern
+        for (let i = 0; i < 3; i++) {
+            const t = now + i * 0.85;
+            g.gain.setValueAtTime(gain, t);
+            g.gain.setValueAtTime(0, t + 0.55);
+        }
+        o.connect(phone);
+        phone.connect(g);
+        g.connect(dest);
+        o.start(now);
+        am.start(now);
+        o.stop(now + 2.6);
+        am.stop(now + 2.6);
+        o.onended = () => { try { phone.disconnect(); g.disconnect(); amG.disconnect(); } catch(e) {} };
+    }
+
+    // A helicopter passing, far off - surveillance weather
+    function createHelicopter(ctx, dest, gain = 0.04) {
+        const now = ctx.currentTime;
+        const dur = 13;
+        const src = ctx.createBufferSource();
+        src.buffer = getNoiseBuffer(ctx, 'pink', 2);
+        src.loop = true;
+        const lp = ctx.createBiquadFilter();
+        lp.type = 'lowpass';
+        lp.frequency.value = 260;
+        const rotor = ctx.createOscillator();
+        const rG = ctx.createGain();
+        rotor.type = 'sine';
+        rotor.frequency.setValueAtTime(12, now);
+        rotor.frequency.linearRampToValueAtTime(15, now + dur * 0.5);  // approach
+        rotor.frequency.linearRampToValueAtTime(11, now + dur);        // recede
+        rG.gain.value = 0.5;
+        const g = ctx.createGain();
+        g.gain.setValueAtTime(0, now);
+        g.gain.linearRampToValueAtTime(gain, now + dur * 0.45);
+        g.gain.linearRampToValueAtTime(0.0001, now + dur);
+        rotor.connect(rG);
+        rG.connect(g.gain);
+        src.connect(lp);
+        lp.connect(g);
+        g.connect(dest);
+        src.start(now, Math.random());
+        rotor.start(now);
+        src.stop(now + dur);
+        rotor.stop(now + dur);
+        src.onended = () => { try { lp.disconnect(); g.disconnect(); rG.disconnect(); } catch(e) {} };
+    }
+
+    // ============================================
+    // SCORE MOMENT
+    // A rare, pre-composed figure on the zone's chord: slow
+    // triangle tones with long envelopes. Exists only for the
+    // still listener - reward content that lives nowhere else.
+    // ============================================
+
+    function createScoreMoment(ctx, dest, table, gain = 0.035) {
+        const t0 = ctx.currentTime + 0.2;
+        const lp = ctx.createBiquadFilter();
+        lp.type = 'lowpass';
+        lp.frequency.value = 1200;
+        lp.Q.value = 0.5;
+        const master = ctx.createGain();
+        master.gain.value = gain;
+        lp.connect(master);
+        master.connect(dest);
+
+        const contour = [0, 2, 1, 3, 2, 4, 3];  // authored, not rolled
+        const notesTable = table.filter(f => f >= 150 && f <= 700);
+        let t = t0;
+        let lastOsc = null;
+        for (let i = 0; i < contour.length; i++) {
+            const f = notesTable[contour[i] % notesTable.length];
+            const o = ctx.createOscillator();
+            o.type = 'triangle';
+            o.frequency.value = f;
+            const g = ctx.createGain();
+            const a = 1.2 + Math.random() * 0.8;
+            const d = 3 + Math.random() * 2;
+            g.gain.setValueAtTime(0, t);
+            g.gain.linearRampToValueAtTime(0.5 + Math.random() * 0.3, t + a);
+            g.gain.exponentialRampToValueAtTime(0.0001, t + a + d);
+            o.connect(g);
+            g.connect(lp);
+            o.start(t);
+            o.stop(t + a + d + 0.1);
+            lastOsc = o;
+            t += 2.2 + Math.random() * 1.6;
+        }
+        if (lastOsc) {
+            lastOsc.onended = () => {
+                try { lp.disconnect(); master.disconnect(); } catch(e) {}
+            };
+        }
+    }
+
+    // ============================================
     // THE RADIO
     // The one aperture through which the outside enters the
     // refuge: an occasional news bulletin, fully synthesized,
@@ -1326,7 +1609,20 @@ const Synthesis = (function() {
         TONIC,
         buildChordTable,
         snapFreq,
+        createSeries,
         createRadio,
+        createScoreMoment,
+        // Maintenance & intruders
+        createSigh,
+        createTapeSmooth,
+        createPageTurn,
+        createBucketEmpty,
+        createPour,
+        createKettle,
+        createSiren,
+        createGenerator,
+        createAlertBuzz,
+        createHelicopter,
         createPinkNoiseBuffer,
         createWhiteNoiseBuffer,
         createFilteredNoise,

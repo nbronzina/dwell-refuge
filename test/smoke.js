@@ -219,6 +219,20 @@ async function main() {
         'snapFreq lands on the nearest chord tone (150 = 50Hz tonic x 3)');
     const sched = Synthesis.createScheduler(1, 2, () => {});
     assert(typeof sched.setRate === 'function', 'schedulers expose a rate scalar');
+    const series = Synthesis.createSeries([0.1, 0.9]);
+    assert(series.next() === 0.1 && series.next() === 0.9 && series.next() === 0.1,
+        'authored series cycle');
+    {
+        const octx = new MockAudioContext();
+        const dest = octx.createGain();
+        // Maintenance & intruder one-shots schedule without throwing
+        ['createSigh', 'createTapeSmooth', 'createPageTurn', 'createBucketEmpty',
+         'createPour', 'createKettle', 'createSiren', 'createGenerator',
+         'createAlertBuzz', 'createHelicopter'].forEach(name => {
+            assert(typeof Synthesis[name] === 'function', name + ' exists');
+            Synthesis[name](octx, dest, 0.03);  // must not throw
+        });
+    }
     {
         const rctx = new MockAudioContext();
         const radio = Synthesis.createRadio(rctx);
@@ -262,9 +276,14 @@ async function main() {
             def.name + ': has intra-zone proximity mixing');
         assert(typeof zone.setStress === 'function',
             def.name + ': has a stress macro');
+        assert(typeof zone.scoreMoment === 'function',
+            def.name + ': has a score moment');
+        assert(zone.reverb && typeof zone.reverb.setWetDry === 'function',
+            def.name + ': exposes its reverb for distance-wet sends');
         zone.trigger();             // must not throw
         zone.setProximity(0.6, -0.4);  // must not throw
         zone.setStress(0.7);           // must not throw
+        zone.scoreMoment();            // must not throw
         zone.cleanup();
     });
     assert(liveSources.size === 0, 'no live sources after all zone cleanups');

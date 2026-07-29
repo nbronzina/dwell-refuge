@@ -108,6 +108,12 @@ const RefugeAudio = (function() {
     const STILLNESS_FILTER_BONUS = 1800; // Extra filter opening (Hz) when still
     const STILLNESS_GAIN_BONUS = 0.08;   // Extra zone gain (fraction) when still
 
+    // Score moments: a rare pre-composed figure that exists ONLY
+    // for the still listener - reward content found nowhere else
+    const SCORE_STILL_HOLD = 30;         // seconds of sustained stillness to earn one
+    const SCORE_COOLDOWN = 360;          // per-zone minimum between moments
+    let stillHold = 0;
+
     // Temporal evolution tracking
     let lastDominantZone = null;
     let lastEvolutionUpdate = 0;
@@ -351,6 +357,20 @@ const RefugeAudio = (function() {
                 source.setStress(factor);
             }
         });
+
+        // Sustained stillness in a zone earns its score moment
+        if (stillness > 0.75) {
+            stillHold += deltaTime;
+        } else {
+            stillHold = 0;
+        }
+        const dom = activeSources.find(s => s.name === dominantZone);
+        if (dom && dom.scoreMoment && stillHold > SCORE_STILL_HOLD &&
+            (lastEvolutionUpdate - dom.lastScore) > SCORE_COOLDOWN) {
+            dom.lastScore = lastEvolutionUpdate;
+            stillHold = 0;
+            dom.scoreMoment();
+        }
     }
 
     function lerp(a, b, t) {
@@ -428,6 +448,15 @@ const RefugeAudio = (function() {
             } else if (p.setPosition) {
                 p.setPosition(px, 0, pz);
             }
+            // Warm the HRTF impulses now: Chrome loads them lazily
+            // with an audible glitch on first real use
+            const warm = audioContext.createBufferSource();
+            warm.buffer = audioContext.createBuffer(1, Math.floor(audioContext.sampleRate * 0.2), audioContext.sampleRate);
+            const mute = audioContext.createGain();
+            mute.gain.value = 0;
+            warm.connect(mute);
+            mute.connect(p);
+            warm.start();
             return p;
         }
 
@@ -475,6 +504,10 @@ const RefugeAudio = (function() {
                 trigger: zone.trigger,
                 setProximity: zone.setProximity,
                 setStress: zone.setStress,
+                scoreMoment: zone.scoreMoment,
+                lastScore: -1e9,
+                reverb: zone.reverb,
+                baseWet: (Synthesis.ZONE_REVERB_PROFILES[zoneDef.name] || {}).wetDry || 0.2,
                 cleanup: zone.cleanup,
                 output: zoneOut,
                 distFilter: distFilter,
@@ -529,6 +562,28 @@ const RefugeAudio = (function() {
             const absorb = Math.min(1, distance / FADE_DISTANCE);
             const cutoff = 16000 - (16000 - 550) * absorb;
             smoothParam(source.distFilter.frequency, cutoff, SMOOTH.filter);
+
+            // Distance-scaled wet send: a fading room is heard
+            // mostly as its reflections
+            if (source.reverb) {
+                source.reverb.setWetDry(Math.min(0.6, source.baseWet + absorb * 0.35));
+            }
+
+            // Directional seams (the Tsushima probe idea, collapsed
+            // to one dynamic panner per zone): outside a room, its
+            // sound arrives FROM where the room actually is
+            const nearX = Math.min(Math.max(position.x, source.rect.x0), source.rect.x1);
+            const nearY = Math.min(Math.max(position.y, source.rect.y0), source.rect.y1);
+            const dirX = nearX - position.x;   // 0 while inside
+            const dirY = nearY - position.y;
+            if (source.output.pan) {
+                const panTarget = Math.max(-0.9, Math.min(0.9, dirX * 4.5));
+                smoothParam(source.output.pan, panTarget, SMOOTH.zoneGain);
+            } else if (source.output.positionX) {
+                smoothParam(source.output.positionX, Math.max(-1.5, Math.min(1.5, dirX * 6)), SMOOTH.zoneGain);
+                smoothParam(source.output.positionZ,
+                    distance <= 0 ? -0.4 : Math.max(-1.5, Math.min(1.5, dirY * 6)), SMOOTH.zoneGain);
+            }
 
             // Element mix shifts with the listener's spot in the
             // room, normalized to the region's extents (its edge = 1)
@@ -633,6 +688,7 @@ const RefugeAudio = (function() {
         lastDominantZone = null;
         lastEvolutionUpdate = 0;
         stillness = 0;
+        stillHold = 0;
         currentVelocity = 0;
     }
 
