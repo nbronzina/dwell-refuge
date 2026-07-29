@@ -28,6 +28,16 @@
 
     // Initialize
     function init() {
+        // Web Audio unavailable: say so instead of failing silently
+        if (!(window.AudioContext || window.webkitAudioContext)) {
+            enterBtn.disabled = true;
+            const entryHint = document.querySelector('.entry-hint');
+            if (entryHint) {
+                entryHint.textContent = 'This browser does not support Web Audio.';
+            }
+            return;
+        }
+
         RefugeInput.init();
 
         // Entry button
@@ -73,6 +83,44 @@
 
         // Zone label on stillness
         setInterval(updateZoneLabel, 500);
+
+        // Tuning overlay: append ?debug to the URL
+        if (window.location.search.indexOf('debug') !== -1) {
+            initDebugOverlay();
+        }
+    }
+
+    // ============================================
+    // DEBUG OVERLAY (?debug)
+    // Live engine state for tuning gains, evolution
+    // and the stillness reward without guessing
+    // ============================================
+
+    function initDebugOverlay() {
+        const panel = document.createElement('pre');
+        panel.className = 'debug-panel';
+        document.body.appendChild(panel);
+
+        setInterval(function() {
+            const s = RefugeAudio.getDebugState();
+            const lines = [
+                'ctx: ' + s.contextState + (s.paused ? ' (paused)' : ''),
+                'spatial: ' + s.spatial,
+                'pos: ' + s.position.x.toFixed(2) + ', ' + s.position.y.toFixed(2),
+                'dominant: ' + (s.dominant || '-'),
+                'velocity: ' + s.velocity.toFixed(3),
+                'stillness: ' + s.stillness.toFixed(2),
+                ''
+            ];
+            s.zones.forEach(function(z) {
+                lines.push(
+                    z.name.padEnd(8) +
+                    ' g=' + z.gain.toFixed(3) +
+                    ' evo=' + z.evolution.toFixed(2)
+                );
+            });
+            panel.textContent = lines.join('\n');
+        }, 250);
     }
 
     // ============================================

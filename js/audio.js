@@ -81,6 +81,17 @@ const RefugeAudio = (function() {
 
     let visibilityHooked = false;
 
+    // HRTF spatialization is CPU-heavy and inconsistent on weak or
+    // mobile hardware - use it only on capable desktops, otherwise
+    // fall back to plain stereo panning
+    let useHRTF = false;
+
+    function shouldUseHRTF() {
+        if (typeof navigator === 'undefined') return false;
+        const isDesktop = !/Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent || '');
+        return isDesktop && (navigator.hardwareConcurrency || 0) > 4;
+    }
+
     // ============================================
     // INITIALIZATION
     // ============================================
@@ -350,18 +361,43 @@ const RefugeAudio = (function() {
     // ZONE SOURCE MANAGEMENT
     // ============================================
 
+    function createZoneOutput(zoneDef) {
+        // Full HRTF placement on capable desktops
+        if (useHRTF && audioContext.createPanner) {
+            const p = audioContext.createPanner();
+            p.panningModel = 'HRTF';
+            p.distanceModel = 'inverse';
+            p.refDistance = 1;
+            p.rolloffFactor = 1;
+            const px = (zoneDef.x - 0.5) * 2;
+            const pz = (zoneDef.y - 0.5) * 2;
+            if (p.positionX) {
+                p.positionX.value = px;
+                p.positionY.value = 0;
+                p.positionZ.value = pz;
+            } else if (p.setPosition) {
+                p.setPosition(px, 0, pz);
+            }
+            return p;
+        }
+
+        // Stereo placement based on the zone's X position
+        if (audioContext.createStereoPanner) {
+            const p = audioContext.createStereoPanner();
+            p.pan.value = (zoneDef.x - 0.5) * 1.4;
+            return p;
+        }
+
+        // Last resort: plain gain (mono placement)
+        return audioContext.createGain();
+    }
+
     function createZoneSources() {
         activeSources = [];
+        useHRTF = shouldUseHRTF();
 
         Zones.ZONE_SOURCES.forEach(zoneDef => {
-            // Per-zone stereo placement based on the zone's X position
-            // (falls back to a plain gain where StereoPannerNode is missing)
-            const zoneOut = audioContext.createStereoPanner
-                ? audioContext.createStereoPanner()
-                : audioContext.createGain();
-            if (zoneOut.pan) {
-                zoneOut.pan.value = (zoneDef.x - 0.5) * 1.4;
-            }
+            const zoneOut = createZoneOutput(zoneDef);
             zoneOut.connect(filterNode);
 
             // Create zone with its soundscape
@@ -576,6 +612,25 @@ const RefugeAudio = (function() {
 
         getZoneSources: function() {
             return Zones.ZONE_SOURCES;
+        },
+
+        // Live tuning state for the ?debug overlay
+        getDebugState: function() {
+            return {
+                running: isRunning,
+                paused: isPaused,
+                contextState: audioContext ? audioContext.state : 'none',
+                spatial: useHRTF ? 'hrtf' : 'stereo',
+                dominant: lastDominantZone,
+                stillness: stillness,
+                velocity: currentVelocity,
+                position: { x: position.x, y: position.y },
+                zones: activeSources.map(s => ({
+                    name: s.name,
+                    gain: s.gainNode.gain.value,
+                    evolution: s.evolutionFactor
+                }))
+            };
         }
     };
 })();

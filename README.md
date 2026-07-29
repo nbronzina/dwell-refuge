@@ -61,8 +61,19 @@ python3 -m http.server
 
 Audio starts on the enter button — browsers require a user gesture to start an AudioContext.
 
+## Development
+
+**Smoke test** — exercises the whole audio graph (zone construction, engine lifecycle, re-entry, graceful exit) against a mocked Web Audio API, including leak detection for oscillators and looped sources:
+
+```bash
+node test/smoke.js
+```
+
+**Tuning overlay** — append `?debug` to the URL for live engine state: dominant zone, per-zone gain and evolution factor, velocity, stillness, spatialization mode, context state.
+
 ## Browser notes
 
 - Chrome / Edge / Firefox / Safari 14.1+ (StereoPannerNode; older browsers fall back to mono placement).
+- Desktops with more than 4 cores get HRTF spatialization; everything else uses stereo panning.
 - iOS 13+ asks permission for device orientation — the "use motion" button handles it.
 - `prefers-reduced-motion` disables the visual pulses.

@@ -182,6 +182,34 @@ html, body {
     border-color: var(--heated-accent);
 }
 
+/* Debug overlay (?debug) */
+.debug-panel {
+    position: fixed;
+    top: 1rem;
+    right: 1rem;
+    margin: 0;
+    padding: 0.6rem 0.8rem;
+    font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+    font-size: 0.65rem;
+    line-height: 1.5;
+    color: var(--heated-accent);
+    background: rgba(0, 0, 0, 0.35);
+    border-radius: 2px;
+    pointer-events: none;
+    z-index: 300;
+    white-space: pre;
+}
+
+.entry-button:disabled {
+    opacity: 0.4;
+    cursor: default;
+}
+
+.entry-button:disabled:hover {
+    background: none;
+    color: var(--heated-accent);
+}
+
 /* Keyboard focus */
 .entry-button:focus-visible,
 .back-link:focus-visible,
