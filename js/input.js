@@ -44,6 +44,10 @@ const RefugeInput = (function() {
     let lastVelocityPush = 0;
     const VELOCITY_PUSH_MS = 200;
 
+    // Full audio: when the lights go down, position stops painting
+    // the background - the sound carries everything
+    let visualFeedback = true;
+
     // Gyroscope state
     let useGyro = false;
     let gyroAvailable = false;
@@ -314,8 +318,10 @@ const RefugeInput = (function() {
                 RefugeAudio.setPosition(x, y);
             }
 
-            // Update background color (can also be throttled)
-            updateBackgroundColor(x, y);
+            // Update background color (unless the lights are down)
+            if (visualFeedback) {
+                updateBackgroundColor(x, y);
+            }
         }
     }
 
@@ -392,6 +398,7 @@ const RefugeInput = (function() {
 
     function activate() {
         isActive = true;
+        visualFeedback = true;
         showCursor();
 
         // Show gyro button on mobile if available
@@ -420,6 +427,9 @@ const RefugeInput = (function() {
         },
         isUsingGyro: function() {
             return useGyro;
+        },
+        setVisualFeedback: function(v) {
+            visualFeedback = !!v;
         },
         hasGyro: function() {
             return gyroAvailable;

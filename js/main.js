@@ -29,6 +29,11 @@
     // ?walk runs the canonical traversal and exports the recording
     const walkMode = window.location.search.indexOf('walk') !== -1;
 
+    // Full audio: the visuals are onboarding only. This long after
+    // entering, the lights go down and the piece is sound alone.
+    const LIGHTS_DOWN_MS = 90000;
+    let lightsDownTimer = null;
+
     // Initialize
     function init() {
         // Web Audio unavailable: say so instead of failing silently
@@ -236,8 +241,25 @@
     // VISUAL PULSES
     // ============================================
 
+    // ============================================
+    // LIGHTS DOWN (full audio)
+    // ============================================
+
+    function lightsDown() {
+        document.body.classList.add('audio-only');
+        RefugeInput.setVisualFeedback(false);
+        // Release the inline tint so the CSS base brown takes over
+        soundSpace.style.backgroundColor = '';
+    }
+
+    function lightsUp() {
+        document.body.classList.remove('audio-only');
+        RefugeInput.setVisualFeedback(true);
+    }
+
     function handleZoneEvent(e) {
         if (!hasEntered || reducedMotion) return;
+        if (document.body.classList.contains('audio-only')) return;
 
         const type = e.detail && e.detail.type;
         if (type === 'thunder') {
@@ -307,12 +329,21 @@
                 RefugeInput.activate();
                 showHint();
             }
+
+            // After onboarding, the house turns its lights off
+            lightsDownTimer = setTimeout(lightsDown, LIGHTS_DOWN_MS);
         }, 1000);
     }
 
     function leave() {
         if (!hasEntered || isExiting) return;
         isExiting = true;
+
+        if (lightsDownTimer) {
+            clearTimeout(lightsDownTimer);
+            lightsDownTimer = null;
+        }
+        lightsUp();
 
         RefugeInput.deactivate();
 

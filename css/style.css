@@ -297,7 +297,33 @@ body.doc {
         rgba(253, 208, 165, 0) 70%);
     pointer-events: none;
     z-index: 50;
-    transition: left 0.1s linear, top 0.1s linear;
+    opacity: 1;
+    transition: left 0.1s linear, top 0.1s linear, opacity 12s ease;
+}
+
+/* Full audio: after onboarding the lights go down - the visual
+   layer withdraws slowly and the piece is sound alone. The zone
+   label keeps updating for screen readers (aria-live), unseen. */
+body.audio-only .sound-space {
+    background-color: var(--heated-bg) !important;
+    transition: background-color 16s ease;
+}
+
+body.audio-only .cursor-glow {
+    opacity: 0;
+}
+
+body.audio-only .sound-space.flash::after,
+body.audio-only .sound-space.shake {
+    animation: none;
+}
+
+body.audio-only .zone-label {
+    opacity: 0 !important;
+}
+
+body.audio-only .space-hint {
+    opacity: 0 !important;
 }
 
 .cursor-glow.hidden {
